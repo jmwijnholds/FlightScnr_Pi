@@ -663,6 +663,27 @@ class RoundTouchDisplay:
 
         Thread(target=_worker, name="wifi-try-saved", daemon=True).start()
 
+    def _tick_wifi_enter_request(self) -> None:
+        """Honor portal/settings cross-process request to open Wi-Fi setup."""
+        if not self._session_unlocked:
+            return
+        if self._wifi_setup_mode or self.screen == SCREEN_WIFI_SETUP:
+            try:
+                wifi_setup_util.clear_enter_wifi_setup_request()
+            except Exception:
+                pass
+            return
+        if self.screen == SCREEN_DISCLAIMER:
+            return
+        try:
+            want = wifi_setup_util.consume_enter_wifi_setup_request()
+        except Exception:
+            logger.debug("Wi-Fi enter-request poll failed", exc_info=True)
+            return
+        if want:
+            self._enter_wifi_setup(reason="manual")
+            self._safe_draw()
+
     def _tick_wifi_link(self) -> None:
         """If client Wi-Fi/ethernet stays down, reopen the setup hotspot after a grace."""
         if (
@@ -671,7 +692,10 @@ class RoundTouchDisplay:
             or self.screen in (SCREEN_WIFI_SETUP, SCREEN_DISCLAIMER)
         ):
             return
-        if wifi_setup_util.skip_requested():
+        if (
+            not wifi_setup_util.auto_hotspot_enabled()
+            and not wifi_setup_util.force_requested()
+        ):
             self._wifi_offline_since = None
             self._wifi_down_streak = 0
             return
@@ -4203,7 +4227,15 @@ class RoundTouchDisplay:
                 self._execute_system_action(action)
 
     def _execute_system_action(self, action: str):
-        """Run reboot / shutdown / app restart after confirmation."""
+        """Run reboot / shutdown / app restart / Wi-Fi setup after confirmation."""
+        if action == "wifi_setup":
+            if wifi_setup_util.skip_requested():
+                logger.info("Start Wi-Fi setup ignored — FLIGHTSCNR_SKIP_WIFI_SETUP set")
+                return
+            self._enter_wifi_setup(reason="manual-settings")
+            self._safe_draw()
+            return
+
         from utilities import system_control
 
         if action == "reboot":
@@ -5925,6 +5957,7 @@ class RoundTouchDisplay:
 
                 # Re-open captive setup if known Wi-Fi stays down past the grace window.
                 self._tick_wifi_link()
+                self._tick_wifi_enter_request()
 
                 if self._fatal_error:
                     # Don't freeze forever during Wi-Fi setup if a draw glitch set fatal

@@ -970,8 +970,18 @@
     </details>
 
     <details class="card system-card">
-        <summary><span class="ico">&#9881;</span>System<span class="sum">power</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9881;</span>System<span class="sum">power, Wi-Fi</span><span class="chev">&#9656;</span></summary>
         <div class="body">
+            <p class="hint">When enabled (default), FlightScnr opens the setup hotspot if the network stays down past a short grace period. Turn this off on mesh or always-on Wi-Fi so NetworkManager can keep reconnecting. First-time setup with no saved Wi-Fi still uses the QR hotspot. Use <strong>Start Wi-Fi setup</strong> for recovery.</p>
+            <div class="chk">
+                <label for="auto_wifi_setup_hotspot">Automatic Wi-Fi setup hotspot</label>
+                <span class="switch"><input id="auto_wifi_setup_hotspot" type="checkbox" checked><span class="track"></span></span>
+            </div>
+            <div class="track-row" style="margin-top:.55rem">
+                <button class="btn btn-primary" id="btn-wifi-start-setup" type="button">Start Wi-Fi setup</button>
+            </div>
+            <div id="wifi-setup-pref-status" class="status"></div>
+            <hr style="border:none;border-top:1px solid var(--line, #333);margin:1rem 0">
             <p class="hint">Download a backup of portal preferences (radar, display, alerts, weather, off-hours, favourites, location, ATC, and API keys). The file includes secrets — keep it private. Does not include maps, photos, or <code>/etc/flightscnr.env</code>.</p>
             <div class="track-row" style="margin-top:.55rem">
                 <button class="btn btn-primary" id="btn-export-settings" type="button">Download settings</button>
@@ -1029,7 +1039,7 @@
     </details>
 
 
-    <p class="wifi-note">First-time Wi-Fi uses the on-device QR setup hotspot when no network is configured.</p>
+    <p class="wifi-note">First-time Wi-Fi uses the on-device QR setup hotspot when no network is configured. Automatic hotspot after a lost link can be changed under System.</p>
     <p class="foot">
         <a href="/stats">Statistics</a> ·
         <a href="/closest">Closest map</a> ·
@@ -1522,6 +1532,9 @@ async function loadAll() {
             $("lofi_volume").value = String(d.lofi_volume ?? 25);
             const ll = $("lofi_volume_label");
             if (ll) ll.textContent = `${$("lofi_volume").value}%`;
+        }
+        if ($("auto_wifi_setup_hotspot")) {
+            $("auto_wifi_setup_hotspot").checked = d.auto_wifi_setup_hotspot !== false;
         }
         syncChimeVolumeLabel();
     } catch (_) {}
@@ -2144,6 +2157,7 @@ async function saveAndReloadSettings(statusId) {
                 lofi_volume: $("lofi_volume") ? Number($("lofi_volume").value) : 25,
                 lofi_controls_enabled: $("lofi_controls_enabled") ? $("lofi_controls_enabled").checked : false,
                 lofi_title_scroll: $("lofi_title_scroll") ? $("lofi_title_scroll").checked : true,
+                auto_wifi_setup_hotspot: $("auto_wifi_setup_hotspot") ? $("auto_wifi_setup_hotspot").checked : true,
             }),
         });
         const loc = ($("radar_center").value || "").trim();
@@ -2942,6 +2956,43 @@ if ($("hide_update_banner")) {
 }
 if ($("auto_update_time")) {
     $("auto_update_time").addEventListener("change", saveAutoUpdatePrefs);
+}
+if ($("auto_wifi_setup_hotspot")) {
+    $("auto_wifi_setup_hotspot").addEventListener("change", async () => {
+        clearStatus("wifi-setup-pref-status");
+        try {
+            const data = await jsonFetch("/display", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    auto_wifi_setup_hotspot: $("auto_wifi_setup_hotspot").checked,
+                }),
+            });
+            showStatus(
+                "wifi-setup-pref-status",
+                data.auto_wifi_setup_hotspot !== false
+                    ? "Automatic Wi-Fi setup hotspot is on."
+                    : "Automatic Wi-Fi setup hotspot is off — NetworkManager will keep trying to reconnect."
+            );
+        } catch (e) {
+            showStatus("wifi-setup-pref-status", e.message, true);
+            $("auto_wifi_setup_hotspot").checked = !$("auto_wifi_setup_hotspot").checked;
+        }
+    });
+}
+if ($("btn-wifi-start-setup")) {
+    $("btn-wifi-start-setup").addEventListener("click", async () => {
+        clearStatus("wifi-setup-pref-status");
+        try {
+            const data = await jsonFetch("/wifi/start-setup", { method: "POST" });
+            showStatus(
+                "wifi-setup-pref-status",
+                data.message || "Opening Wi-Fi setup on the display…"
+            );
+        } catch (e) {
+            showStatus("wifi-setup-pref-status", e.message, true);
+        }
+    });
 }
 $("btn-repair-update").addEventListener("click", applyRepairConfirmed);
 $("btn-resync-install").addEventListener("click", applyResyncConfirmed);

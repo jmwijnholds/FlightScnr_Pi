@@ -321,6 +321,30 @@ def wifi_try_saved():
     ), code
 
 
+@app.post("/wifi/start-setup")
+def wifi_start_setup():
+    """Ask the display process to open the Wi-Fi setup hotspot (manual recovery)."""
+    from utilities import wifi_setup
+
+    if wifi_setup.skip_requested():
+        return jsonify(
+            {
+                "ok": False,
+                "message": "Wi-Fi setup is disabled by FLIGHTSCNR_SKIP_WIFI_SETUP.",
+            }
+        ), 400
+    if not wifi_setup.request_enter_wifi_setup():
+        return jsonify(
+            {"ok": False, "message": "Could not request Wi-Fi setup."}
+        ), 500
+    return jsonify(
+        {
+            "ok": True,
+            "message": "Opening Wi-Fi setup on the display…",
+        }
+    )
+
+
 @app.get("/")
 def index():
     if _wifi_portal_active():
@@ -894,6 +918,7 @@ def display_json():
             "lofi_volume": settings.lofi_volume(),
             "lofi_controls_enabled": settings.lofi_controls_enabled(),
             "lofi_title_scroll": settings.lofi_title_scroll(),
+            "auto_wifi_setup_hotspot": settings.auto_wifi_setup_hotspot_enabled(),
         }
     )
 
@@ -995,6 +1020,11 @@ def display_save():
         settings.set_lofi_controls_enabled(bool(data.get("lofi_controls_enabled")))
     if "lofi_title_scroll" in data:
         settings.set_lofi_title_scroll(bool(data.get("lofi_title_scroll")))
+    if "auto_wifi_setup_hotspot" in data:
+        settings.set_auto_wifi_setup_hotspot_enabled(
+            bool(data.get("auto_wifi_setup_hotspot"))
+        )
+        settings.request_reload()
     return jsonify(
         {
             "ok": True,
@@ -1028,6 +1058,7 @@ def display_save():
             "lofi_volume": settings.lofi_volume(),
             "lofi_controls_enabled": settings.lofi_controls_enabled(),
             "lofi_title_scroll": settings.lofi_title_scroll(),
+            "auto_wifi_setup_hotspot": settings.auto_wifi_setup_hotspot_enabled(),
             "message": "Display settings saved.",
         }
     )
