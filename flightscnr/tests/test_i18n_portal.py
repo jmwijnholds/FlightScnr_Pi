@@ -72,6 +72,9 @@ def test_catalog_preview_uses_shared_validated_catalog_without_saving(portal):
     assert {item["locale"] for item in body["languages"]} == {
         "en",
         "nl",
+        "de",
+        "fr",
+        "es",
     }
     assert body["date_previews"]["eu"]
     assert settings.display_language() == "en"

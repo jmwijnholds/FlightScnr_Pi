@@ -71,16 +71,32 @@ class LocaleResolutionTests(unittest.TestCase):
 
 
 class CatalogTests(unittest.TestCase):
-    def test_all_shipped_catalogs_are_complete_and_current(self):
+    def test_completed_catalogs_and_spanish_draft_fall_back_safely(self):
         store = CatalogStore(ROOT / "i18n" / "locales")
         self.assertEqual(
             {info.locale for info in store.available_languages()},
-            {"en", "nl"},
+            {"en", "nl", "de", "fr", "es"},
         )
-        for locale in ("en", "nl"):
+        for locale in ("en", "nl", "de", "fr"):
             selected = store.catalog_for(locale)
             self.assertEqual(selected.effective_language, locale)
             self.assertEqual(selected.warnings, ())
+        self.assertNotEqual(
+            store.catalog_for("de").translate("portal.radar.center.label"),
+            "Radar center (lat, lon)",
+        )
+        self.assertNotEqual(
+            store.catalog_for("fr").translate("portal.radar.center.label"),
+            "Radar center (lat, lon)",
+        )
+        selected = store.catalog_for("es")
+        self.assertEqual(selected.effective_language, "es")
+        self.assertTrue(any("missing key" in item for item in selected.warnings))
+        self.assertTrue(any("trails English" in item for item in selected.warnings))
+        self.assertEqual(
+            selected.translate("portal.radar.center.label"),
+            "Radar center (lat, lon)",
+        )
 
     def test_shipped_dutch_pack_and_regional_fallback(self):
         selected = catalog_for("nl-NL")
