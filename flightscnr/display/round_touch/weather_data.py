@@ -39,38 +39,6 @@ def _interval_local_date(start: str) -> date | None:
         return None
 
 
-def _weather_code_label(code) -> str:
-    try:
-        code = int(code)
-    except (TypeError, ValueError):
-        return "—"
-    mapping = {
-        1000: "Clear",
-        1100: "Mostly clear",
-        1101: "Partly cloudy",
-        1102: "Mostly cloudy",
-        1001: "Cloudy",
-        4000: "Drizzle",
-        4200: "Light rain",
-        4001: "Rain",
-        4201: "Heavy rain",
-        5000: "Snow",
-        5001: "Flurries",
-        5100: "Light snow",
-        5101: "Heavy snow",
-        6000: "Freezing drizzle",
-        6001: "Freezing rain",
-        7000: "Ice pellets",
-        8000: "Thunderstorm",
-        2100: "Light fog",
-        2000: "Fog",
-        3000: "Light wind",
-        3001: "Wind",
-        3002: "Strong wind",
-    }
-    return mapping.get(code, "Weather")
-
-
 def _fmt_time(value) -> str:
     if value is None or value == "":
         return "—"
@@ -96,6 +64,7 @@ def _fmt_time(value) -> str:
 
 
 def _parse_days(intervals: list, max_days: int = 3) -> list[dict]:
+    """Normalize provider intervals without caching localized presentation."""
     days = []
     today = _today()
     for item in intervals:
@@ -104,25 +73,65 @@ def _parse_days(intervals: list, max_days: int = 3) -> list[dict]:
         if day_date is not None and day_date < today:
             continue
         values = item.get("values") or {}
-        if day_date is not None:
-            label = "Today" if day_date == today else day_date.strftime("%a")
-        else:
-            label = f"Day {len(days) + 1}"
         days.append(
             {
-                "label": label,
+                "date": day_date.isoformat() if day_date is not None else None,
                 "temp_min": values.get("temperatureMin"),
                 "temp_max": values.get("temperatureMax"),
                 "weather_code": values.get("weatherCodeFullDay"),
-                "weather_label": _weather_code_label(values.get("weatherCodeFullDay")),
                 "precip_pct": values.get("precipitationProbabilityAvg"),
-                "sunrise": _fmt_time(values.get("sunriseTime")),
-                "sunset": _fmt_time(values.get("sunsetTime")),
+                "sunrise_raw": values.get("sunriseTime"),
+                "sunset_raw": values.get("sunsetTime"),
             }
         )
         if len(days) >= max_days:
             break
     return days
+
+
+def _day_date(value) -> date | None:
+    if isinstance(value, date):
+        return value
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _localized_payload(payload: dict | None) -> dict | None:
+    """Build a display view from semantic cache data without network access."""
+    if not isinstance(payload, dict):
+        return None
+    from i18n import active_catalog, format_forecast_day, weather_code_label
+
+    out = dict(payload)
+    localized_days: list[dict] = []
+    today = _today()
+    selected = active_catalog()
+    for index, raw_day in enumerate(payload.get("days") or [], start=1):
+        day = dict(raw_day)
+        day["label"] = format_forecast_day(
+            _day_date(day.get("date")),
+            today=today,
+            number=index,
+            catalog=selected,
+        )
+        day["is_today"] = _day_date(day.get("date")) == today
+        day["weather_label"] = weather_code_label(
+            day.get("weather_code"), catalog=selected
+        )
+        day["sunrise"] = _fmt_time(day.get("sunrise_raw"))
+        day["sunset"] = _fmt_time(day.get("sunset_raw"))
+        localized_days.append(day)
+    out["days"] = localized_days
+    out["sunrise"] = _fmt_time(payload.get("sunrise_raw"))
+    out["sunset"] = _fmt_time(payload.get("sunset_raw"))
+    out["weather_label"] = weather_code_label(
+        payload.get("weather_code"), catalog=selected
+    )
+    return out
 
 
 def _merge_aqi(payload: dict, *, force: bool = False) -> dict:
@@ -204,7 +213,7 @@ def refresh(force: bool = False) -> dict | None:
                 pass
             cached = _merge_aqi(cached)
             _CACHE["payload"] = cached
-            return cached
+            return _localized_payload(cached)
 
     temp_hum = grab_temperature_and_humidity(force=force)
     intervals = grab_forecast("display", force=force)
@@ -227,15 +236,14 @@ def refresh(force: bool = False) -> dict | None:
         # Keep the last good reading when the provider is rate-limiting.
         prev = _CACHE.get("payload")
         if isinstance(prev, dict) and prev.get("ready"):
-            return _merge_aqi(prev)
+            return _localized_payload(_merge_aqi(prev))
         payload = {
             "temp": None,
             "humidity": None,
             "unit": unit_symbol(),
             "days": [],
-            "sunrise": "—",
-            "sunset": "—",
-            "weather_label": "—",
+            "sunrise_raw": None,
+            "sunset_raw": None,
             "weather_code": None,
             "wind_speed": None,
             "wind_direction": None,
@@ -247,7 +255,7 @@ def refresh(force: bool = False) -> dict | None:
         _CACHE["ts"] = now
         _CACHE["date"] = today
         _CACHE["payload"] = payload
-        return payload
+        return _localized_payload(payload)
 
     temp, humidity = temp_hum if temp_hum else (None, None)
     days = _parse_days(intervals or [])
@@ -263,9 +271,8 @@ def refresh(force: bool = False) -> dict | None:
         "humidity": humidity,
         "unit": unit_symbol(),
         "days": days,
-        "sunrise": days[0].get("sunrise") if days else "—",
-        "sunset": days[0].get("sunset") if days else "—",
-        "weather_label": _weather_code_label(current_code),
+        "sunrise_raw": days[0].get("sunrise_raw") if days else None,
+        "sunset_raw": days[0].get("sunset_raw") if days else None,
         "weather_code": current_code,
         "wind_speed": wind_speed,
         "wind_direction": wind_direction,
@@ -277,11 +284,11 @@ def refresh(force: bool = False) -> dict | None:
     _CACHE["ts"] = now
     _CACHE["date"] = today
     _CACHE["payload"] = payload
-    return payload
+    return _localized_payload(payload)
 
 
 def snapshot() -> dict | None:
-    return _CACHE["payload"]
+    return _localized_payload(_CACHE["payload"])
 
 
 def unavailable_messages() -> tuple[str, str]:
@@ -292,15 +299,9 @@ def unavailable_messages() -> tuple[str, str]:
         status = weather_fetch_status()
     except Exception:
         status = "unknown"
-    if status == "no_key":
-        return "Weather unavailable", "Add TOMORROW_API_KEY in the portal"
-    if status == "disabled":
-        return "Weather disabled", "Enable Tomorrow.io in the portal"
-    if status == "backoff":
-        return "Weather rate-limited", "Tomorrow.io limit reached - retrying later"
-    if status == "rate_limited":
-        return "Weather updating", "Next refresh at :01 or :31"
-    return "Weather unavailable", "Tap to retry · or use portal Weather"
+    from i18n import weather_status_messages
+
+    return weather_status_messages(status)
 
 
 def request_fetch_now() -> dict | None:
@@ -376,7 +377,7 @@ def refresh_current(force: bool = False) -> dict | None:
             pass
         cached = _merge_aqi(cached)
         _CACHE["payload"] = cached
-        return cached
+        return _localized_payload(cached)
 
     temp_hum = grab_temperature_and_humidity(force=force)
     temp, humidity = temp_hum if temp_hum else (None, None)
@@ -392,7 +393,7 @@ def refresh_current(force: bool = False) -> dict | None:
     base = cached if isinstance(cached, dict) else {}
     # On rate-limit / failed fetch, keep the previous ready reading.
     if temp is None and isinstance(base, dict) and base.get("ready") and base.get("temp") is not None:
-        return _merge_aqi(base)
+        return _localized_payload(_merge_aqi(base))
     days = list(base.get("days") or [])
     current_code = realtime_code or (days[0].get("weather_code") if days else None)
     payload = {
@@ -400,9 +401,12 @@ def refresh_current(force: bool = False) -> dict | None:
         "humidity": humidity,
         "unit": units,
         "days": days,
-        "sunrise": base.get("sunrise") or (days[0].get("sunrise") if days else "—"),
-        "sunset": base.get("sunset") or (days[0].get("sunset") if days else "—"),
-        "weather_label": _weather_code_label(current_code),
+        "sunrise_raw": base.get("sunrise_raw") or (
+            days[0].get("sunrise_raw") if days else None
+        ),
+        "sunset_raw": base.get("sunset_raw") or (
+            days[0].get("sunset_raw") if days else None
+        ),
         "weather_code": current_code,
         "wind_speed": wind_speed,
         "wind_direction": wind_direction,
@@ -414,7 +418,7 @@ def refresh_current(force: bool = False) -> dict | None:
     _CACHE["ts"] = now
     _CACHE["date"] = today
     _CACHE["payload"] = payload
-    return payload
+    return _localized_payload(payload)
 
 
 def _current_slot_key(when: datetime | None = None) -> str:
