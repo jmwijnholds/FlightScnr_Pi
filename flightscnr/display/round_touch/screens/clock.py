@@ -14,6 +14,7 @@ from datetime import datetime
 import pygame
 
 from display.round_touch import draw, nav, settings, theme, weather_data, weather_icons
+from i18n import format_date, tr
 
 FOOTER_BUTTONS = ("radar",)
 
@@ -38,11 +39,7 @@ def _time_strings(now: datetime | None = None):
 
 def _date_string(now: datetime | None = None) -> str:
     now = now or datetime.now()
-    weekday = now.strftime("%a")
-    month = now.strftime("%b")
-    if settings.use_european_date():
-        return f"{weekday}, {now.day} {month}"
-    return f"{weekday}, {month} {now.day}"
+    return format_date(now, "eu" if settings.use_european_date() else "us")
 
 
 def _format_sun_time(value: str) -> str:
@@ -282,7 +279,7 @@ def tap_on_time(x: int, y: int) -> bool:
 
 def draw_clock(surface):
     draw.fill_background_textured(surface)
-    nav.draw_curved_breadcrumb(surface, ["Radar", "Clock"])
+    nav.draw_curved_breadcrumb(surface, [tr("common.radar"), tr("common.clock")])
 
     wx = weather_data.refresh() or weather_data.snapshot()
     date_str = _date_string()

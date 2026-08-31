@@ -1722,7 +1722,11 @@ class RoundTouchDisplay:
         if action is None:
             return
         self._display_focus = row
-        if action == "traffic":
+        if action == "language":
+            self._open_atc_picker("language")
+        elif action == "date_order":
+            self._open_atc_picker("date_order")
+        elif action == "traffic":
             self._open_atc_picker("traffic")
         elif action == "brightness":
             # Brightness is a drag slider; taps are handled via brightness_slider_at.
@@ -2067,6 +2071,16 @@ class RoundTouchDisplay:
             return
         if kind == "favourite":
             self._select_favourite_location(choice)
+            return
+        if kind == "language":
+            settings.set_display_language(choice)
+            info.invalidate_atc_labels()
+            radar_hud.rebuild_overlay()
+            self._weather_redraw_pending = True
+            return
+        if kind == "date_order":
+            settings.set_date_format(choice)
+            radar_hud.rebuild_overlay()
             return
         if kind == "range":
             try:
@@ -4861,6 +4875,16 @@ class RoundTouchDisplay:
 
     def _apply_reloaded_settings(self):
         """Apply settings written by another process (e.g. web portal)."""
+        changed = settings.reload_changed_keys()
+        if changed and changed <= {"display_language", "date_format"}:
+            # Locale-only changes are presentation state. Never invalidate map,
+            # forecast, or provider caches and never spend Tomorrow.io quota.
+            info.invalidate_atc_labels()
+            radar_hud.rebuild_overlay()
+            radar.invalidate_frame_layer()
+            self._weather_redraw_pending = True
+            self._safe_draw()
+            return
         scale.select(settings.scale_index())
         map_bg.invalidate()
         map_bg.request_background()

@@ -43,6 +43,7 @@ except ImportError:
         return f"http://{name}.local"
 
 from display.round_touch import alert_prefs, draw, nav, settings, theme
+from i18n import available_languages, catalog_for, tr
 
 PAGE_MAIN = 0
 PAGE_ATC = 1
@@ -74,6 +75,8 @@ def is_atc_page(page: int) -> bool:
 # Display was overflowing the round viewport after HUD/chime rows were added.
 # Compass / range / screen controls stay here; radar HUD + chime get PAGE_HUD.
 DISPLAY_ACTIONS = (
+    "language",
+    "date_order",
     "facing",
     "recenter",
     "compass",
@@ -224,9 +227,13 @@ LIST_PICKER_KINDS = frozenset(
         "airport_icon_style",
         "airport_size",
         "zoom_position",
+        "language",
+        "date_order",
     }
 )
 _LIST_PICKER_TITLES = {
+    "language": "Select language",
+    "date_order": "Date order",
     "airport": "Select airport",
     "channel": "Select channel",
     "output": "Select output",
@@ -341,9 +348,9 @@ def _firms_api_line() -> str:
 
 
 def _breadcrumb(page: int) -> list[str]:
-    trail = ["Radar", "About", "Settings"]
+    trail = [tr("common.radar"), tr("common.about"), tr("common.settings")]
     if page == PAGE_DISPLAY:
-        trail.append("Display")
+        trail.append(tr("common.display"))
     elif page == PAGE_HUD:
         trail.append("HUD & Volume")
     elif page == PAGE_OPTIONS:
@@ -456,6 +463,30 @@ def _enum_picker_items(ids, current, label_fn) -> list[dict]:
 
 def _build_settings_picker_items(kind: str) -> list[dict]:
     """Discrete choices for settings rows that used to tap-cycle."""
+    if kind == "language":
+        current = settings.display_language()
+        out = [
+            {
+                "id": "system",
+                "label": tr("settings.language.system"),
+                "selected": current == "system",
+            }
+        ]
+        out.extend(
+            {
+                "id": info.locale,
+                "label": info.native_name,
+                "selected": current == info.locale,
+            }
+            for info in available_languages()
+        )
+        return out
+    if kind == "date_order":
+        return _enum_picker_items(
+            settings.DATE_FORMATS,
+            settings.date_format(),
+            lambda order: tr(f"settings.date_order.{order}"),
+        )
     if kind == "favourite":
         from utilities import favourite_locations
 
@@ -1347,7 +1378,12 @@ def draw_atc_picker(
         return _draw_time_picker(surface, kind)
     if kind in TARGETS_EDITOR_KINDS:
         return _draw_targets_editor(surface, kind)
-    title_text = _LIST_PICKER_TITLES.get(kind, "Select")
+    if kind == "language":
+        title_text = tr("settings.picker.language")
+    elif kind == "date_order":
+        title_text = tr("settings.picker.date_order")
+    else:
+        title_text = _LIST_PICKER_TITLES.get(kind, "Select")
     items = atc_picker_items(kind)
     pressed = str(pressed_id or "").strip()
 
@@ -2906,9 +2942,23 @@ def _draw_atc_page(surface, scroll_offset: int, display_focus: int, top: int, bo
 
 def _display_row_labels() -> list[str]:
     facing = settings.facing_label()
+    selection = catalog_for(settings.display_language())
+    language_label = tr("settings.language.system")
+    if settings.display_language() != "system":
+        language_label = next(
+            (
+                item.native_name
+                for item in available_languages()
+                if item.locale == selection.effective_language
+            ),
+            selection.effective_language,
+        )
     # Brightness is drawn as a slider; placeholder keeps row count aligned.
     # On/off rows carry a switch, so they are label-only here.
     return [
+        f"{tr('settings.display.language')} › {language_label}",
+        f"{tr('settings.display.date_order')} › "
+        f"{tr(f'settings.date_order.{settings.date_format()}')}",
         f"Change Compass Heading: {facing}",
         "Click to Set Radar Center",
         "Compass Rose",
