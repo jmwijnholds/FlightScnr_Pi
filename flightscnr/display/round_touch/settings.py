@@ -22,6 +22,7 @@ RELOAD_REQUEST_PATH = os.path.join(DATA_DIR, "round_touch_settings.reload")
 _settings_mtime: float | None = None
 # True when _state matches disk. Slider drags set this False until persist.
 _disk_synced = True
+_last_reload_changed_keys: frozenset[str] = frozenset()
 
 MIN_HEIGHT_OPTIONS = (0, 100, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000)
 # AIS vessels slower than or equal to this (kt) are hidden; 0 = no speed floor.
@@ -332,6 +333,8 @@ _defaults = {
     "runway_light_rgb": list(color_presets.DEFAULT_RUNWAY_LIGHT_RGB),
     "theme_palette_v": color_presets.THEME_PALETTE_V,
     "clock_12hr": True,
+    # Requested UI language. Missing/invalid packs resolve to English at runtime.
+    "display_language": "en",
     # us | eu — digital and altimeter clock date order (Flieger unchanged).
     "date_format": "us",
     "auto_timezone": True,
@@ -920,6 +923,14 @@ def _load():
         migrated = True
     else:
         state["date_format"] = date_fmt
+    from i18n import normalize_requested_language
+
+    language = normalize_requested_language(state.get("display_language"))
+    if "display_language" not in data or state.get("display_language") != language:
+        state["display_language"] = language
+        migrated = True
+    else:
+        state["display_language"] = language
     try:
         if "radar_hud_opacity" not in data:
             state["radar_hud_opacity"] = 72
@@ -1132,6 +1143,12 @@ def _load():
 
 _state = _load()
 try:
+    from i18n import activate as _activate_language
+
+    _activate_language(_state.get("display_language", "en"))
+except Exception:
+    logger.warning("Could not activate display language", exc_info=True)
+try:
     _settings_mtime = os.path.getmtime(SETTINGS_PATH)
 except OSError:
     _settings_mtime = None
@@ -1177,6 +1194,7 @@ def _settings_snapshot(state: dict) -> tuple:
         state.get("flight_detail_timeout_s"),
         state.get("clock_timeout_s"),
         state.get("clock_12hr"),
+        str(state.get("display_language") or "en"),
         str(state.get("date_format") or "us"),
         state.get("auto_timezone"),
         state.get("traffic_mode"),
@@ -1285,6 +1303,12 @@ def sync_from_disk() -> bool:
         return False
     _state = _load()
     try:
+        from i18n import activate
+
+        activate(_state.get("display_language", "en"))
+    except Exception:
+        logger.warning("Could not activate reloaded display language", exc_info=True)
+    try:
         _settings_mtime = os.path.getmtime(SETTINGS_PATH)
     except OSError:
         _settings_mtime = None
@@ -1297,7 +1321,7 @@ def sync_from_disk() -> bool:
 
 def reload() -> bool:
     """Reload settings from disk if file changed externally."""
-    global _state, _settings_mtime, _disk_synced
+    global _state, _settings_mtime, _disk_synced, _last_reload_changed_keys
     force = _consume_reload_request()
     # Do not clobber in-memory slider edits (brightness / VFR opacity / theme RGB)
     # that have not been flushed to disk yet — otherwise values flicker every poll.
@@ -1319,6 +1343,7 @@ def reload() -> bool:
         with open(SETTINGS_PATH, encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError, TypeError):
+        _last_reload_changed_keys = frozenset()
         return force
 
     incoming = {**_defaults, **data}
@@ -1327,9 +1352,22 @@ def reload() -> bool:
             _settings_mtime = os.path.getmtime(SETTINGS_PATH)
         except OSError:
             pass
+        _last_reload_changed_keys = frozenset()
         return False
 
+    previous = dict(_state)
     _state = _load()
+    _last_reload_changed_keys = frozenset(
+        key
+        for key in set(previous) | set(_state)
+        if previous.get(key) != _state.get(key)
+    )
+    try:
+        from i18n import activate
+
+        activate(_state.get("display_language", "en"))
+    except Exception:
+        logger.warning("Could not activate reloaded display language", exc_info=True)
     try:
         _settings_mtime = os.path.getmtime(SETTINGS_PATH)
     except OSError:
@@ -1341,6 +1379,11 @@ def reload() -> bool:
     # (e.g. from the web portal process).
     apply_theme_colors()
     return True
+
+
+def reload_changed_keys() -> frozenset[str]:
+    """Keys changed by the most recent successful ``reload`` call."""
+    return _last_reload_changed_keys
 
 
 def _sync_config_min_height():
@@ -2474,6 +2517,21 @@ def toggle_clock_format():
     return set_use_12hr_clock(not use_12hr_clock())
 
 
+def display_language() -> str:
+    from i18n import normalize_requested_language
+
+    return normalize_requested_language(_state.get("display_language"))
+
+
+def set_display_language(language: str) -> str:
+    from i18n import activate, normalize_requested_language
+
+    value = normalize_requested_language(language)
+    _rmw_save({"display_language": value})
+    activate(value)
+    return value
+
+
 def date_format() -> str:
     fmt = str(_state.get("date_format") or "us").strip().lower()
     return fmt if fmt in DATE_FORMATS else "us"
@@ -2494,6 +2552,24 @@ def set_date_format(fmt: str) -> str:
 
 def set_use_european_date(enabled: bool) -> str:
     return set_date_format("eu" if enabled else "us")
+
+
+def set_language_region(language: str, date_order: str) -> tuple[str, str]:
+    """Atomically persist the portal/device language and existing date order."""
+    from i18n import activate, normalize_requested_language
+
+    language_value = normalize_requested_language(language)
+    date_value = str(date_order or "us").strip().lower()
+    if date_value not in DATE_FORMATS:
+        date_value = "us"
+    _rmw_save(
+        {
+            "display_language": language_value,
+            "date_format": date_value,
+        }
+    )
+    activate(language_value)
+    return language_value, date_value
 
 
 def auto_idle_clock_enabled() -> bool:
