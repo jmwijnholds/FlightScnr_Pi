@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ effective_language|default('en')|e }}">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>FlightScnrPi Settings</title>
+    <title data-i18n="portal.page.title">FlightScnrPi Settings</title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <style>
         :root{--bg:#0a0a0a;--card:#141414;--card2:#1c1c1c;--line:#333;--text:#ececec;
@@ -172,15 +172,32 @@
         <img class="logo" src="/static/radar_icon.png" alt="" width="34" height="34">
         <h1>FlightScnrPi</h1>
     </div>
-    <p class="subtitle">Portal settings for radar, local ADS-B, display, alerts, tracking, and API keys.</p>
+    <p class="subtitle" data-i18n="portal.page.subtitle">Portal settings for radar, local ADS-B, display, alerts, tracking, and API keys.</p>
 
     <div class="search-wrap">
-        <input id="setting_search" type="search" placeholder="Search settings…" autocomplete="off">
+        <input id="setting_search" type="search" placeholder="Search settings…" data-i18n-placeholder="portal.search.placeholder" autocomplete="off">
         <div id="setting_search_results" class="search-results hidden"></div>
     </div>
 
+    <details class="card" id="language-region-card">
+        <summary><span class="ico">Aa</span><span data-i18n="portal.language_region.title">Language and Region</span><span class="sum" data-i18n="portal.language_region.summary">language and date order</span><span class="chev">&#9656;</span></summary>
+        <div class="body">
+            <label for="display_language" data-i18n="portal.language_region.language">Display language</label>
+            <select id="display_language"></select>
+            <p class="hint" data-i18n="portal.language_region.language_hint">English is used when a translation is unavailable.</p>
+            <label for="date_order" data-i18n="portal.language_region.date_order">Date order</label>
+            <select id="date_order">
+                <option value="us" data-i18n="settings.date_order.us">Month-Day</option>
+                <option value="eu" data-i18n="settings.date_order.eu">Day-Month</option>
+            </select>
+            <p class="hint"><span data-i18n="portal.language_region.preview">Preview</span>: <code id="date_order_preview"></code></p>
+            <button class="btn btn-primary" id="btn-language-region" type="button" data-i18n="portal.language_region.save">Save language and region</button>
+            <div id="language-region-status" class="status"></div>
+        </div>
+    </details>
+
     <details class="card">
-        <summary><span class="ico">&#9678;</span>Radar<span class="sum">center, range, units</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9678;</span><span data-i18n="portal.section.radar.title">Radar</span><span class="sum" data-i18n="portal.section.radar.summary">center, range, units</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <label for="radar_center">Radar center (lat, lon)</label>
             <input id="radar_center" type="text" autocomplete="off" placeholder="37.620000, -122.370000">
@@ -400,10 +417,10 @@
     </details>
 
     <details class="card">
-        <summary><span class="ico">&#9873;</span>Favorite Locations<span class="sum">saved centers, up to 10</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9873;</span><span data-i18n="portal.section.favorites.title">Favorite Locations</span><span class="sum" data-i18n="portal.section.favorites.summary">saved centers, up to 10</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <details class="card" style="margin:0 0 .75rem;border-color:var(--fline)">
-                <summary><span class="ico">&#43;</span>Add New Location<span class="sum">Location Details</span><span class="chev">&#9656;</span></summary>
+                <summary><span class="ico">&#43;</span><span data-i18n="portal.section.favorite_add.title">Add New Location</span><span class="sum" data-i18n="portal.section.favorite_add.summary">Location Details</span><span class="chev">&#9656;</span></summary>
                 <div class="body">
                     <label for="fav_icao">ICAO Code (optional)</label>
                     <input id="fav_icao" type="text" autocomplete="off" placeholder="e.g. EGLL" maxlength="4">
@@ -418,7 +435,7 @@
                 </div>
             </details>
             <details class="card" style="margin:0;border-color:var(--fline)">
-                <summary><span class="ico">&#9733;</span>Saved Locations<span class="sum">up to 10</span><span class="chev">&#9656;</span></summary>
+                <summary><span class="ico">&#9733;</span><span data-i18n="portal.section.favorite_saved.title">Saved Locations</span><span class="sum" data-i18n="portal.section.favorite_saved.summary">up to 10</span><span class="chev">&#9656;</span></summary>
                 <div class="body">
                     <div id="fav-list" class="fav-list"><p class="fav-empty">No locations saved yet.</p></div>
                     <div id="fav-list-status" class="status"></div>
@@ -428,7 +445,7 @@
     </details>
 
     <details class="card">
-        <summary><span class="ico">&#128225;</span>Local ADS-B<span class="sum">dump1090 / readsb</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#128225;</span><span data-i18n="portal.section.local_adsb.title">Local ADS-B</span><span class="sum" data-i18n="portal.section.local_adsb.summary">dump1090 / readsb</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <div class="chk">
                 <label for="dump1090_enabled">Use local dump1090 / readsb</label>
@@ -444,7 +461,7 @@
     </details>
 
     <details class="card">
-        <summary><span class="ico">&#128225;</span>Route Sources<span class="sum">order &amp; fallback</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#128225;</span><span data-i18n="portal.section.route_sources.title">Route Sources</span><span class="sum" data-i18n="portal.section.route_sources.summary">order &amp; fallback</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <label for="route_source_order">Route lookup order</label>
             <input id="route_source_order" type="text" autocomplete="off" placeholder="airlabs,flightaware,opensky">
@@ -455,9 +472,9 @@
     </details>
 
     <details class="card">
-        <summary><span class="ico">&#128506;</span>Position Sources<span class="sum">extended tracking map</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#128506;</span><span data-i18n="portal.section.position_sources.title">Position Sources</span><span class="sum" data-i18n="portal.section.position_sources.summary">extended tracking map</span><span class="chev">&#9656;</span></summary>
         <div class="body">
-            <p class="hint">Fallback order for the live-centered map (Radar &gt; Track &gt; Live). First source that has a fresh position for the tracked aircraft wins. Drag to reorder; a source with no key/URL configured is skipped automatically even if left in the list.</p>
+            <p class="hint"><span data-i18n="portal.position_sources.hint_before_path">Fallback order for the live-centered map (</span><span data-i18n="common.radar">Radar</span> &gt; <span data-i18n="portal.tracking.track">Track</span> &gt; <span data-i18n="portal.position_sources.path_live">Live</span><span data-i18n="portal.position_sources.hint_after_path">). First source that has a fresh position for the tracked aircraft wins. Drag to reorder; a source with no key/URL configured is skipped automatically even if left in the list.</span></p>
             <ul id="position-source-list" class="drag-list">
                 <!-- populated by loadPositionSourceOrder() -->
             </ul>
@@ -481,7 +498,7 @@
     </details>
 
     <details class="card">
-        <summary><span class="ico">&#9888;</span>Alerts<span class="sum">flight #, type, registration</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9888;</span><span data-i18n="portal.section.alerts.title">Alerts</span><span class="sum" data-i18n="portal.section.alerts.summary">flight #, type, registration</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <div class="chk"><label for="alert-mil">Alert on military aircraft</label><span class="switch"><input id="alert-mil" type="checkbox"><span class="track"></span></span></div>
             <div class="chk"><label for="alert-emrg">Alert on emergency squawk (7700/7600/7500)</label><span class="switch"><input id="alert-emrg" type="checkbox"><span class="track"></span></span></div>
@@ -498,7 +515,7 @@
     </details>
 
     <details class="card">
-        <summary><span class="ico">&#9992;</span>Tracking<span class="sum">one flight # or tail worldwide</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9992;</span><span data-i18n="portal.section.tracking.title">Tracking</span><span class="sum" data-i18n="portal.section.tracking.summary">one flight # or tail worldwide</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <label for="callsign-input">Track flight number or registration</label>
             <div class="track-row">
@@ -524,7 +541,7 @@
     </details>
 
     <details class="card">
-        <summary><span class="ico">&#9788;</span>Display, screens &amp; volume<span class="sum">brightness, rotation, timeouts, volume</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9788;</span><span data-i18n="portal.section.display.title">Display, screens &amp; volume</span><span class="sum" data-i18n="portal.section.display.summary">brightness, rotation, timeouts, volume</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <label for="bright_pct">Screen brightness <span id="bright_pct_label">100%</span></label>
             <input id="bright_pct" type="range" min="3" max="100" step="1" value="100">
@@ -660,7 +677,7 @@
     </details>
 
     <details class="card">
-        <summary><span class="ico">&#9835;</span>LoFi Beats<span class="sum">background music, playlist, uploads</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9835;</span><span data-i18n="portal.section.lofi.title">LoFi Beats</span><span class="sum" data-i18n="portal.section.lofi.summary">background music, playlist, uploads</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <div class="chk">
                 <label for="lofi_enabled">Background lofi beats</label>
@@ -718,7 +735,7 @@
     </details>
 
     <details class="card">
-        <summary><span class="ico">&#9790;</span>Off-Hours<span class="sum">night mode schedule</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9790;</span><span data-i18n="portal.section.off_hours.title">Off-Hours</span><span class="sum" data-i18n="portal.section.off_hours.summary">night mode schedule</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <div class="chk">
                 <label for="night_en">Enable off-hours (night mode)</label>
@@ -739,7 +756,7 @@
     </details>
 
     <details class="card">
-        <summary><span class="ico">&#9678;</span>Targets<span class="sum">colors, sizes, symbols</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9678;</span><span data-i18n="portal.section.targets.title">Targets</span><span class="sum" data-i18n="portal.section.targets.summary">colors, sizes, symbols</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <p class="hint">Per-category visibility for the radar: accent color, size, and symbol for planes, helicopters, drones, and vessels, plus compass rose and blip styling. Same as Settings &rarr; Targets on the device. Auto keeps today's default look.</p>
             <div id="targets_body"></div>
@@ -749,7 +766,7 @@
     </details>
 
     <details class="card">
-        <summary><span class="ico">&#9729;</span>Weather<span class="sum">units</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9729;</span><span data-i18n="portal.section.weather.title">Weather</span><span class="sum" data-i18n="portal.section.weather.summary">units</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <label for="weather_units">Units</label>
             <select id="weather_units">
@@ -764,7 +781,7 @@
     </details>
 
     <details class="card atc-card">
-        <summary><span class="ico">&#9835;</span>ATC Audio<span class="sum">LiveATC</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9835;</span><span data-i18n="portal.section.atc.title">ATC Audio</span><span class="sum" data-i18n="portal.section.atc.summary">LiveATC</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <p class="hint">Manual LiveATC stream to the Pi’s USB or Bluetooth speaker via <code>mpv</code> (<code>sudo apt install mpv</code>). Pair a Bluetooth speaker in the card below. Airport lists every large/medium field in radar range. Channel loads local seed/index immediately, then auto-fetches the full LiveATC feed list in the background (Cloudflare-bypass search). Enable ATC audio to start playback; disable to stop. Changing airport or moving the map while ATC is enabled selects that area’s Tower and keeps playing. Playback resumes after reboot/app restart when it was left enabled. Quiet hours block auto-resume after reboot; turning ATC on again overrides quiet hours until you disable it.</p>
             <div class="chk">
@@ -809,7 +826,7 @@
     </details>
 
     <details class="card bluetooth-card">
-        <summary><span class="ico">&#9834;</span>Bluetooth Speaker<span class="sum" id="bt-sum">ATC &amp; chime</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9834;</span><span data-i18n="portal.section.bluetooth.title">Bluetooth Speaker</span><span class="sum" id="bt-sum" data-i18n="portal.section.bluetooth.summary">ATC &amp; chime</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <p class="hint">Scan, pair, and select a Bluetooth speaker for ATC audio and the hourly chime. On the round display, Settings → ATC shows status and a quick Use Bluetooth reconnect for the speaker paired here. Put the speaker in pairing mode before Scan / Pair &amp; Connect. Requires <code>bluez</code> on the Pi.</p>
             <p class="hint" id="bt_status_line">Status: —</p>
@@ -827,7 +844,7 @@
     </details>
 
     <details class="card">
-        <summary><span class="ico">&#128273;</span>API Keys<span class="sum">FR24, Tomorrow.io, AirLabs, AIS, FlightAware, FIRMS, Stadia</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#128273;</span><span data-i18n="portal.section.api_keys.title">API Keys</span><span class="sum" data-i18n="portal.section.api_keys.summary">FR24, Tomorrow.io, AirLabs, AIS, FlightAware, FIRMS, Stadia</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <div class="chk">
                 <label for="use-fr24-api">Use FR24 API</label>
@@ -915,7 +932,7 @@
     </details>
 
     <details class="card update-card">
-        <summary><span class="ico">&#8635;</span>Updates<span class="sum">version, install</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#8635;</span><span data-i18n="portal.section.updates.title">Updates</span><span class="sum" data-i18n="portal.section.updates.summary">version, install</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <div class="update-row">
                 <span id="update-badge" class="update-badge ok hidden">Up to date</span>
@@ -949,7 +966,7 @@
     </details>
 
     <details class="card system-card">
-        <summary><span class="ico">&#9881;</span>System<span class="sum">power</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9881;</span><span data-i18n="portal.section.system.title">System</span><span class="sum" data-i18n="portal.section.system.summary">power</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <p class="hint">Download a backup of portal preferences (radar, display, alerts, weather, off-hours, favourites, location, ATC, and API keys). The file includes secrets — keep it private. Does not include maps, photos, or <code>/etc/flightscnr.env</code>.</p>
             <div class="track-row" style="margin-top:.55rem">
@@ -988,7 +1005,7 @@
     </details>
 
     <details class="card irreversible-card">
-        <summary><span class="ico">&#9888;</span>Master Caution<span class="sum">wipe, reinstall</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9888;</span><span data-i18n="portal.section.master_caution.title">Master Caution</span><span class="sum" data-i18n="portal.section.master_caution.summary">wipe, reinstall</span><span class="chev">&#9656;</span></summary>
         <div class="body">
             <p class="hint">Download settings from <strong>System</strong> first if you want to keep radar prefs and API keys. Wi-Fi and dump1090 are not touched. If this button fails with a sudo error, tap <strong>Update Now</strong> or <strong>Finish install</strong> once so sudoers is updated.</p>
             <div class="irreversible-row" id="irreversible-actions-row">
@@ -1024,6 +1041,151 @@ let rangePresetsMi = [2, 3, 5, 8, 10, 20, 30, 50];
 const STATUTE_MILE_KM = 1.609344;
 const NM_PER_KM = 1 / 1.852;
 const $ = (id) => document.getElementById(id);
+let i18nState = { messages: {}, text_bindings: {}, date_previews: {} };
+
+function i18nText(key, fallback = "") {
+    const value = i18nState.messages && i18nState.messages[key];
+    return typeof value === "string" ? value : fallback;
+}
+
+function i18nFromSource(value) {
+    const text = String(value || "");
+    const source = normalizedI18nSource(text);
+    return (i18nState.text_bindings || {})[source] || text;
+}
+
+function i18nFormat(key, fallback, values = {}) {
+    let text = i18nText(key, fallback);
+    Object.entries(values).forEach(([name, value]) => {
+        text = text.split(`{${name}}`).join(String(value));
+    });
+    return text;
+}
+
+function normalizedI18nSource(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function applyI18nTextBindings(root = document.querySelector(".wrap")) {
+    if (!root || !document.createTreeWalker) return;
+    const bindings = i18nState.text_bindings || {};
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach((node) => {
+        const parent = node.parentElement;
+        if (!parent || parent.closest("script, style, code, [data-i18n]")) return;
+        const current = String(node.nodeValue || "");
+        if (!Object.prototype.hasOwnProperty.call(node, "_flightscnrI18nSource")) {
+            node._flightscnrI18nSource = normalizedI18nSource(current);
+        }
+        const source = node._flightscnrI18nSource;
+        if (!source || typeof bindings[source] !== "string") return;
+        const leading = (current.match(/^\s*/) || [""])[0];
+        const trailing = (current.match(/\s*$/) || [""])[0];
+        const translated = leading + bindings[source] + trailing;
+        if (node.nodeValue !== translated) node.nodeValue = translated;
+    });
+    root.querySelectorAll("[placeholder], [title], [aria-label]").forEach((el) => {
+        if (!el._flightscnrI18nAttributeSources) {
+            el._flightscnrI18nAttributeSources = {};
+        }
+        ["placeholder", "title", "aria-label"].forEach((name) => {
+            if (!el.hasAttribute(name)) return;
+            if (!Object.prototype.hasOwnProperty.call(
+                el._flightscnrI18nAttributeSources,
+                name
+            )) {
+                el._flightscnrI18nAttributeSources[name] = normalizedI18nSource(
+                    el.getAttribute(name)
+                );
+            }
+            const source = el._flightscnrI18nAttributeSources[name];
+            if (source && typeof bindings[source] === "string") {
+                if (el.getAttribute(name) !== bindings[source]) {
+                    el.setAttribute(name, bindings[source]);
+                }
+            }
+        });
+    });
+}
+
+function applyI18nCatalog(data) {
+    i18nState = data || { messages: {}, date_previews: {} };
+    document.documentElement.lang = i18nState.effective_language || "en";
+    document.querySelectorAll("[data-i18n]").forEach((el) => {
+        const key = el.dataset.i18n;
+        const translated = i18nText(key, el.textContent || "");
+        el.textContent = translated;
+    });
+    document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+        const key = el.dataset.i18nPlaceholder;
+        el.placeholder = i18nText(key, el.placeholder || "");
+    });
+    applyI18nTextBindings();
+
+    const languageSelect = $("display_language");
+    if (languageSelect) {
+        const requested = i18nState.requested_language || "en";
+        languageSelect.textContent = "";
+        const systemOption = document.createElement("option");
+        systemOption.value = "system";
+        systemOption.textContent = i18nText("settings.language.system", "System");
+        languageSelect.appendChild(systemOption);
+        (i18nState.languages || []).forEach((language) => {
+            const option = document.createElement("option");
+            option.value = String(language.locale || "");
+            option.textContent = String(language.native_name || language.locale || "");
+            languageSelect.appendChild(option);
+        });
+        languageSelect.value = requested;
+        if (languageSelect.value !== requested) languageSelect.value = "en";
+    }
+    const dateSelect = $("date_order");
+    if (dateSelect && ["us", "eu"].includes(i18nState.date_order)) {
+        dateSelect.value = i18nState.date_order;
+    }
+    updateDateOrderPreview();
+}
+
+function updateDateOrderPreview() {
+    const order = $("date_order") ? $("date_order").value : "us";
+    const preview = $("date_order_preview");
+    if (preview) preview.textContent = (i18nState.date_previews || {})[order] || "";
+}
+
+async function loadLanguageRegion(language = "") {
+    const params = new URLSearchParams();
+    if (language) {
+        params.set("language", language);
+        if ($("date_order")) params.set("date_order", $("date_order").value || "us");
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    const data = await jsonFetch(`/i18n/catalog.json${suffix}`);
+    applyI18nCatalog(data);
+}
+
+async function saveLanguageRegion() {
+    clearStatus("language-region-status");
+    try {
+        await jsonFetch("/display", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                display_language: $("display_language").value || "en",
+                date_format: $("date_order").value || "us",
+            }),
+        });
+        await jsonFetch("/settings/reload", { method: "POST" });
+        await loadLanguageRegion();
+        showStatus(
+            "language-region-status",
+            i18nText("portal.language_region.saved", "Language and region saved.")
+        );
+    } catch (e) {
+        showStatus("language-region-status", e.message, true);
+    }
+}
 
 function clampByte(n) {
     const v = Number(n);
@@ -1077,7 +1239,7 @@ function wireRgbGroup(prefix) {
 
 function showStatus(id, msg, error = false) {
     const el = $(id);
-    el.textContent = msg || "";
+    el.textContent = i18nFromSource(msg || "");
     el.className = "status show" + (error ? " error" : "");
 }
 
@@ -1092,7 +1254,7 @@ async function jsonFetch(url, opts = {}) {
     // Prefer fresh prefs from the Pi — portal + display are separate processes.
     const res = await fetch(url, { cache: "no-store", ...opts, headers });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.message || "Request failed");
+    if (!res.ok) throw new Error(i18nFromSource(data.message || "Request failed"));
     return data;
 }
 
@@ -1114,7 +1276,12 @@ function applyKeyHints(keys) {
         const el = $(id);
         if (!el) return;
         const info = keys[key] || {};
-        el.textContent = info.configured ? `Current: ${info.masked} (${info.source})` : "Not set";
+        el.textContent = info.configured
+            ? i18nFormat("portal.api_keys.current", "Current: {masked} ({source})", {
+                masked: info.masked,
+                source: info.source,
+            })
+            : i18nText("portal.api_keys.not_set", "Not set");
     });
 }
 
@@ -1375,6 +1542,9 @@ async function applyRepairConfirmed() {
 
 async function loadAll() {
     try {
+        await loadLanguageRegion();
+    } catch (_) {}
+    try {
         const loc = await jsonFetch("/location/json");
         if (loc.location) $("radar_center").value = loc.location;
     } catch (_) {}
@@ -1545,7 +1715,9 @@ async function loadAll() {
 
     try {
         const t = await jsonFetch("/tracked/json");
-        $("current-tracked").textContent = t.callsign ? `Currently tracking: ${t.callsign}` : "Not currently tracking a flight.";
+        $("current-tracked").textContent = t.callsign
+            ? i18nFormat("portal.tracking.current", "Currently tracking: {callsign}", { callsign: t.callsign })
+            : i18nText("portal.tracking.none", "Not currently tracking a flight.");
     } catch (_) {}
 
     try {
@@ -1588,6 +1760,7 @@ async function loadAll() {
                 || "http://127.0.0.1:8080/data/aircraft.json";
         }
     } catch (_) {}
+    applyI18nTextBindings();
 }
 
 function toggleDimRow() {
@@ -1735,20 +1908,33 @@ function syncFollowRadiusUnitLabels() {
     const maxLabel = $("live_tracking_max_radius_label");
     const minHint = $("live_tracking_min_radius_hint");
     const maxHint = $("live_tracking_max_radius_hint");
-    if (minLabel) minLabel.textContent = `Follow min radius (${dist})`;
-    if (maxLabel) maxLabel.textContent = `Follow max radius (${dist})`;
+    if (minLabel) minLabel.textContent = i18nFormat(
+        "portal.position_sources.min_radius.with_unit",
+        "Follow min radius ({unit})",
+        { unit: dist }
+    );
+    if (maxLabel) maxLabel.textContent = i18nFormat(
+        "portal.position_sources.max_radius.with_unit",
+        "Follow max radius ({unit})",
+        { unit: dist }
+    );
     const taxiDist = formatDistanceAmount(FOLLOW_DEFAULT_MIN_KM, dist);
     const defMin = formatDistanceAmount(FOLLOW_DEFAULT_MIN_KM, dist);
     const defMax = formatDistanceAmount(FOLLOW_DEFAULT_MAX_KM, dist);
     const taxiSpeed = formatSpeedAmountFromKt(50);
     if (minHint) {
-        minHint.textContent =
-            `Floor for the speed-based zoom curve (not the taxi snap under ${taxiSpeed}, ` +
-            `which stays ~${taxiDist} ${dist}). Default ${defMin} ${dist}.`;
+        minHint.textContent = i18nFormat(
+            "portal.position_sources.min_radius.dynamic_hint",
+            "Floor for the speed-based zoom curve (not the taxi snap under {taxi_speed}, which stays ~{taxi_distance} {unit}). Default {default_min} {unit}.",
+            { taxi_speed: taxiSpeed, taxi_distance: taxiDist, default_min: defMin, unit: dist }
+        );
     }
     if (maxHint) {
-        maxHint.textContent =
-            `Ceiling for cruise / high-speed Follow zoom. Default ${defMax} ${dist}.`;
+        maxHint.textContent = i18nFormat(
+            "portal.position_sources.max_radius.dynamic_hint",
+            "Ceiling for cruise / high-speed Follow zoom. Default {default_max} {unit}.",
+            { default_max: defMax, unit: dist }
+        );
     }
 }
 
@@ -1765,7 +1951,7 @@ function onDistanceUnitsChanged() {
 
 function formatSpeedFloorFromKt(kt) {
     const n = Number(kt) || 0;
-    if (n <= 0) return "Any (no floor)";
+    if (n <= 0) return i18nText("portal.radar.speed.any", "Any (no floor)");
     const units = speedUnitFromSelect();
     if (units === "mph") return `> ${Math.trunc(n * 1.15078)} mph`;
     if (units === "kts") return `> ${Math.trunc(n)} kts`;
@@ -1780,8 +1966,16 @@ function syncMinSpeedUnitLabels() {
     const suffix = speedUnitSuffix();
     const vesselLabel = $("vessel_min_speed_label");
     const aircraftLabel = $("aircraft_min_speed_label");
-    if (vesselLabel) vesselLabel.textContent = `Marine min speed (${suffix})`;
-    if (aircraftLabel) aircraftLabel.textContent = `Aircraft min speed (${suffix})`;
+    if (vesselLabel) vesselLabel.textContent = i18nFormat(
+        "portal.radar.vessel_min_speed.with_unit",
+        "Marine min speed ({unit})",
+        { unit: suffix }
+    );
+    if (aircraftLabel) aircraftLabel.textContent = i18nFormat(
+        "portal.radar.aircraft_min_speed.with_unit",
+        "Aircraft min speed ({unit})",
+        { unit: suffix }
+    );
     for (const id of ["vessel_min_speed", "aircraft_min_speed"]) {
         const sel = $(id);
         if (!sel) continue;
@@ -1835,7 +2029,7 @@ async function saveRadar() {
                 aircraft_min_speed_kt: Number($("aircraft_min_speed") ? $("aircraft_min_speed").value : 0),
             }),
         });
-        showStatus("radar-status", "Radar settings saved.");
+        showStatus("radar-status", i18nText("portal.radar.saved", "Radar settings saved."));
         await loadAll();
         // ATC airports are recomputed for the new center; force a fresh load.
         try { await loadAtc(); } catch (_) {}
@@ -1860,8 +2054,8 @@ async function saveDump1090() {
         showStatus(
             "dump1090-status",
             enabled
-                ? "Local ADS-B saved — display picks it up on the next data cycle."
-                : "Local ADS-B disabled."
+                ? i18nText("portal.local_adsb.saved", "Local ADS-B saved — display picks it up on the next data cycle.")
+                : i18nText("portal.local_adsb.disabled", "Local ADS-B disabled.")
         );
         await loadAll();
         await refreshDump1090Live();
@@ -1872,29 +2066,37 @@ async function saveDump1090() {
 
 function formatDump1090Live(data) {
     if (!data || !data.enabled) {
-        return "Status: disabled";
+        return i18nText("portal.local_adsb.status.disabled", "Status: disabled");
     }
     if (data.reachable === false) {
         const err = data.error ? ` (${data.error})` : "";
-        return `Status: unreachable${err}`;
+        return i18nFormat("portal.local_adsb.status.unreachable", "Status: unreachable{error}", { error: err });
     }
     if (data.reachable !== true) {
-        return "Status: checking…";
+        return i18nText("portal.local_adsb.status.checking", "Status: checking…");
     }
     const fresh = Number(data.aircraft_fresh || 0);
     const total = Number(data.aircraft_total || 0);
-    let line = `Status: reachable — ${fresh} aircraft with fresh position`;
+    let line = i18nFormat(
+        "portal.local_adsb.status.reachable",
+        "Status: reachable — {fresh} aircraft with fresh position",
+        { fresh }
+    );
     if (total > fresh) {
-        line += ` (${total} in feed)`;
+        line += i18nFormat("portal.local_adsb.status.total", " ({total} in feed)", { total });
     }
     const radar = data.radar || {};
     const added = Number(radar.added || 0);
     const updated = Number(radar.updated || 0);
     const raw = Number(radar.raw || 0);
     if (radar.ts) {
-        line += `. Last radar cycle: ${raw} in range, ${added} new, ${updated} refreshed`;
+        line += i18nFormat(
+            "portal.local_adsb.status.radar_cycle",
+            ". Last radar cycle: {raw} in range, {added} new, {updated} refreshed",
+            { raw, added, updated }
+        );
         if (radar.ok === false) {
-            line += " (feed error — may be using cache)";
+            line += i18nText("portal.local_adsb.status.feed_error", " (feed error — may be using cache)");
         }
     }
     return line;
@@ -1909,7 +2111,11 @@ async function refreshDump1090Live() {
         const data = await jsonFetch("/dump1090/status.json");
         el.textContent = formatDump1090Live(data);
     } catch (e) {
-        el.textContent = `Status: ${e.message || "unavailable"}`;
+        el.textContent = i18nFormat(
+            "portal.common.status.value",
+            "Status: {status}",
+            { status: e.message || i18nText("portal.common.unavailable", "unavailable") }
+        );
     }
 }
 
@@ -1937,7 +2143,11 @@ async function saveRouteSourceOrder() {
             (resp.keys && resp.keys.route_source_order &&
                 resp.keys.route_source_order.ROUTE_SOURCE_ORDER_EFFECTIVE) ||
             "airlabs,flightaware,opensky";
-	showStatus("route-source-order-status", `Saved — effective order: ${effective}`);
+	showStatus("route-source-order-status", i18nFormat(
+            "portal.route_sources.saved",
+            "Saved — effective order: {order}",
+            { order: effective }
+        ));
         await loadAll();
     } catch (e) {
         showStatus("route-source-order-status", e.message, true);
@@ -2217,7 +2427,7 @@ async function loadFavourites() {
     const locs = data.locations || [];
     const activeIdx = Number(data.active_index);
     if (!locs.length) {
-        list.innerHTML = '<p class="fav-empty">No locations saved yet.</p>';
+        list.innerHTML = `<p class="fav-empty">${escapeHtml(i18nText("portal.favorites.empty", "No locations saved yet."))}</p>`;
         return data;
     }
     list.innerHTML = locs.map((loc, idx) => {
@@ -2227,12 +2437,12 @@ async function loadFavourites() {
         const rowClass = active ? "fav-row active" : "fav-row";
         return `<div class="${rowClass}">
             <div class="fav-meta">
-                <strong>${escapeHtml(loc.name)}${icao}${active ? " · active" : ""}</strong>
+                <strong>${escapeHtml(loc.name)}${icao}${active ? ` · ${escapeHtml(i18nText("portal.favorites.active", "active"))}` : ""}</strong>
                 <span>${escapeHtml(pos)}</span>
             </div>
             <div class="fav-actions">
-                <button class="btn btn-sm btn-primary" type="button" data-fav-select="${escapeHtml(loc.id)}">Select</button>
-                <button class="btn btn-sm btn-danger" type="button" data-fav-delete="${escapeHtml(loc.id)}">Delete</button>
+                <button class="btn btn-sm btn-primary" type="button" data-fav-select="${escapeHtml(loc.id)}">${escapeHtml(i18nText("portal.favorites.select", "Select"))}</button>
+                <button class="btn btn-sm btn-danger" type="button" data-fav-delete="${escapeHtml(loc.id)}">${escapeHtml(i18nText("portal.favorites.delete", "Delete"))}</button>
             </div>
         </div>`;
     }).join("");
@@ -2243,7 +2453,7 @@ async function searchFavouriteIcao() {
     clearStatus("fav-add-status");
     const code = ($("fav_icao").value || "").trim().toUpperCase();
     if (!code) {
-        showStatus("fav-add-status", "Enter an ICAO or IATA code first.", true);
+        showStatus("fav-add-status", i18nText("portal.favorites.code_required", "Enter an ICAO or IATA code first."), true);
         return;
     }
     try {
@@ -2252,7 +2462,11 @@ async function searchFavouriteIcao() {
         if (data.name && !($("fav_name").value || "").trim()) $("fav_name").value = data.name;
         $("fav_position").value =
             `${Number(data.lat).toFixed(6)}, ${Number(data.lon).toFixed(6)}`;
-        showStatus("fav-add-status", `Found ${data.name || data.icao}. Edit the name if you like, then Add.`);
+        showStatus("fav-add-status", i18nFormat(
+            "portal.favorites.found",
+            "Found {name}. Edit the name if you like, then Add.",
+            { name: data.name || data.icao }
+        ));
     } catch (e) {
         showStatus("fav-add-status", e.message, true);
     }
@@ -2273,7 +2487,7 @@ async function addFavourite() {
         $("fav_icao").value = "";
         $("fav_name").value = "";
         $("fav_position").value = "";
-        showStatus("fav-add-status", data.message || "Added.");
+        showStatus("fav-add-status", data.message || i18nText("portal.favorites.added", "Added."));
         await loadFavourites();
     } catch (e) {
         showStatus("fav-add-status", e.message, true);
@@ -2380,7 +2594,9 @@ async function saveTracked(callsign) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ callsign }),
     });
-    $("current-tracked").textContent = callsign ? `Currently tracking: ${callsign}` : "Not currently tracking a flight.";
+    $("current-tracked").textContent = callsign
+        ? i18nFormat("portal.tracking.current", "Currently tracking: {callsign}", { callsign })
+        : i18nText("portal.tracking.none", "Not currently tracking a flight.");
 }
 
 async function lookupAndTrack() {
@@ -3332,6 +3548,13 @@ if ($("btn-bt-usb")) $("btn-bt-usb").addEventListener("click", bluetoothUseUsb);
 if ($("btn-bt-disconnect")) $("btn-bt-disconnect").addEventListener("click", bluetoothDisconnect);
 
 if ($("traffic_labels")) $("traffic_labels").addEventListener("change", syncTagLeadersControl);
+if ($("btn-language-region")) $("btn-language-region").addEventListener("click", saveLanguageRegion);
+if ($("date_order")) $("date_order").addEventListener("change", updateDateOrderPreview);
+if ($("display_language")) {
+    $("display_language").addEventListener("change", (event) => {
+        loadLanguageRegion(event.target.value).catch(() => {});
+    });
+}
 
 document.addEventListener("DOMContentLoaded", () => {
     wireRgbGroup("theme");
@@ -3571,7 +3794,7 @@ document.addEventListener("DOMContentLoaded", () => {
         function buildIndex() {
             index = [];
             document.querySelectorAll("details.card").forEach((det) => {
-                const sec = sectionTitle(det) || "Settings";
+                const sec = sectionTitle(det) || i18nText("portal.search.section_fallback", "Settings");
                 const sum = det.querySelector(":scope > summary");
                 const sumHint = sum && sum.querySelector(".sum") ? sum.querySelector(".sum").textContent : "";
                 if (sum) index.push({
@@ -3607,7 +3830,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!current.length) {
                 const d = document.createElement("div");
                 d.className = "search-empty";
-                d.textContent = "No settings match";
+                d.textContent = i18nText("portal.search.no_results", "No settings match");
                 box.appendChild(d);
             } else current.forEach((e, i) => {
                 const b = document.createElement("button");
