@@ -71,32 +71,34 @@ class LocaleResolutionTests(unittest.TestCase):
 
 
 class CatalogTests(unittest.TestCase):
-    def test_completed_catalogs_and_spanish_draft_fall_back_safely(self):
+    def test_shipped_catalogs_are_complete(self):
         store = CatalogStore(ROOT / "i18n" / "locales")
         self.assertEqual(
             {info.locale for info in store.available_languages()},
             {"en", "nl", "de", "fr", "es"},
         )
-        for locale in ("en", "nl", "de", "fr"):
+        for locale in ("en", "nl", "de", "fr", "es"):
             selected = store.catalog_for(locale)
             self.assertEqual(selected.effective_language, locale)
             self.assertEqual(selected.warnings, ())
-        self.assertNotEqual(
-            store.catalog_for("de").translate("portal.radar.center.label"),
-            "Radar center (lat, lon)",
-        )
-        self.assertNotEqual(
-            store.catalog_for("fr").translate("portal.radar.center.label"),
-            "Radar center (lat, lon)",
-        )
-        selected = store.catalog_for("es")
-        self.assertEqual(selected.effective_language, "es")
-        self.assertTrue(any("missing key" in item for item in selected.warnings))
-        self.assertTrue(any("trails English" in item for item in selected.warnings))
-        self.assertEqual(
-            selected.translate("portal.radar.center.label"),
-            "Radar center (lat, lon)",
-        )
+        for locale in ("nl", "de", "fr", "es"):
+            self.assertNotEqual(
+                store.catalog_for(locale).translate("portal.radar.center.label"),
+                "Radar center (lat, lon)",
+            )
+
+    def test_route_source_identifiers_are_not_translated(self):
+        store = CatalogStore(ROOT / "i18n" / "locales")
+        for locale in ("nl", "de", "fr", "es"):
+            selected = store.catalog_for(locale)
+            self.assertIn(
+                "airlabs, flightaware, opensky",
+                selected.translate("portal.route_sources.order.hint_before_example"),
+            )
+            self.assertIn(
+                "airlabs,flightaware,opensky",
+                selected.translate("portal.route_sources.order.hint_after_example"),
+            )
 
     def test_shipped_dutch_pack_and_regional_fallback(self):
         selected = catalog_for("nl-NL")
