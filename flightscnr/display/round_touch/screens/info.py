@@ -229,6 +229,9 @@ LIST_PICKER_KINDS = frozenset(
         "zoom_position",
         "language",
         "date_order",
+        # Missing here meant the Display > Rim targets row opened a picker
+        # with a title, a close button, and no choices in it.
+        "rim_style",
     }
 )
 _LIST_PICKER_TITLES = {
@@ -3462,10 +3465,11 @@ def draw_info(
         )
     draw.fill_background_textured(surface)
 
-    # A finger resting on a card takes the highlight instantly — same
-    # style as the focus ring, applied before the tap ever lands.
-    if pressed_row is not None:
-        display_focus = pressed_row
+    # The highlight means "a finger is on this card right now", nothing
+    # else. Rows fire on the tap that hits them, so there is no selection
+    # to keep showing afterwards — and a lingering one sat on whatever row
+    # a scroll happened to end over, which read as an accidental toggle.
+    display_focus = pressed_row if pressed_row is not None else -1
 
     body_font = _display_font()
     top = nav.content_top_y(has_dots=True)

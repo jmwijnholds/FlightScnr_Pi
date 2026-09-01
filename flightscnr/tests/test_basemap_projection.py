@@ -55,8 +55,26 @@ class TestBasemapProjection(unittest.TestCase):
             )
 
         self.assertEqual(screen, merc)
-        # Regression: flat-earth was ~11 px off at 500 m on the 2 mi scale.
-        self.assertNotEqual(screen, flat_would)
+
+        # This used to assert screen != flat_would, on the reading that
+        # Mercator and flat-earth should diverge here. They should not: the
+        # offset is due east at a fixed latitude, where the two projections
+        # agree to well under a pixel. The ~11 px gap was the basemap sitting
+        # at raw tile resolution instead of the band's, so aircraft were
+        # placed ~5% off the range rings drawn beneath them. The resize that
+        # fixed radar zoom also closed that gap, so assert what actually
+        # matters: 500 m east lands where the ring scale says it should.
+        from display.round_touch import scale as scale_mod
+        from display.round_touch import theme as theme_mod
+
+        outer_km = scale_mod.bands()[scale_mod.active_index()]["label_km"]
+        expected_px = 0.5 * (theme_mod.GRID_OUTER_RADIUS / outer_km)
+        self.assertAlmostEqual(
+            screen[0] - theme_mod.CENTER_X, expected_px, delta=1.0,
+            msg="aircraft must sit at the range the rings advertise",
+        )
+        self.assertAlmostEqual(screen[1], theme_mod.CENTER_Y, delta=1.0)
+        self.assertEqual(screen, flat_would)
 
     def test_basemap_roundtrip(self):
         from display.round_touch import geo, map_bg

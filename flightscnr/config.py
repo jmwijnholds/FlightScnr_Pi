@@ -500,6 +500,7 @@ def passes_altitude_filter(alt_ft) -> bool:
         return MIN_ALTITUDE <= 0
     return MIN_ALTITUDE <= alt < MAX_ALTITUDE_FT
 JOURNEY_CODE_SELECTED = _require("JOURNEY_CODE_SELECTED")
+# 0 / unset: overhead keeps 7 days. Unbounded growth stalled the display loop.
 STATS_LOG_DAYS = int(os.environ.get("STATS_LOG_DAYS", "0"))
 _raw_filler = os.environ.get("JOURNEY_BLANK_FILLER", "").strip()
 JOURNEY_BLANK_FILLER = f" {_raw_filler} " if _raw_filler else " ? "

@@ -20,6 +20,7 @@ settings chrome (breadcrumbs, footer pills, scroll arc) can share it.
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 
 import pygame
 
@@ -121,6 +122,60 @@ def arc_band_hit(
     return abs(_wrap_angle(math.atan2(dy, dx) - mid)) <= half_span
 
 
+# The scrollbar track restamps the same 168 discs every frame. Bounded so a
+# scrolling thumb, which sweeps new angles continuously, cannot grow it.
+ARC_CACHE_MAX = 48
+_arc_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
+_arc_hits = 0
+
+
+def _invalidate_arc_cache() -> None:
+    global _arc_hits
+    _arc_cache.clear()
+    _arc_hits = 0
+
+
+def _arc_cache_size() -> int:
+    return len(_arc_cache)
+
+
+def _arc_cache_hits() -> int:
+    return _arc_hits
+
+
+def _stamp_arc(r, a0, span, width, color_rgba):
+    """Render the arc once, positioned relative to a centre at the origin.
+
+    Returns (layer, dx, dy) where dx/dy are the blit offset from the arc's
+    centre — so the same stamp can be reused at any integer centre.
+    """
+    radius = max(1, width // 2)
+    step = max(0.002, radius / max(1.0, r))
+    steps = max(1, int(math.ceil(span / step)))
+    pts = []
+    min_x = min_y = 10 ** 9
+    max_x = max_y = -(10 ** 9)
+    for i in range(steps + 1):
+        a = a0 + span * i / steps
+        px = int(round(r * math.cos(a)))
+        py = int(round(r * math.sin(a)))
+        pts.append((px, py))
+        min_x = min(min_x, px)
+        max_x = max(max_x, px)
+        min_y = min(min_y, py)
+        max_y = max(max_y, py)
+    # Size the layer to the arc's bounding box, not the screen — a full-size
+    # SRCALPHA allocation plus blit cost ~8 ms per call on the Pi.
+    pad = radius + 1
+    dx, dy = min_x - pad, min_y - pad
+    layer = pygame.Surface(
+        (max_x - min_x + 2 * pad, max_y - min_y + 2 * pad), pygame.SRCALPHA
+    )
+    for px, py in pts:
+        pygame.draw.circle(layer, color_rgba, (px - dx, py - dy), radius)
+    return layer, dx, dy
+
+
 def draw_arc_bar(
     surface: pygame.Surface,
     *,
@@ -132,35 +187,30 @@ def draw_arc_bar(
     width: int,
     color_rgba: tuple[int, int, int, int],
 ) -> None:
-    """Stroke an arc by stamping discs (smooth ends, no pygame.draw.arc moiré)."""
+    """Stroke an arc by stamping discs (smooth ends, no pygame.draw.arc moiré).
+
+    The stamp is built around the origin and cached, so a track that does
+    not change between frames costs one blit instead of 168 discs.
+    """
+    global _arc_hits
     if a1 < a0:
         a0, a1 = a1, a0
     span = a1 - a0
     if span <= 0 or width <= 0:
         return
-    radius = max(1, width // 2)
-    # Step so consecutive discs overlap by half their radius.
-    step = max(0.002, radius / max(1.0, r))
-    steps = max(1, int(math.ceil(span / step)))
-    pts = []
-    min_x = min_y = 10 ** 9
-    max_x = max_y = -(10 ** 9)
-    for i in range(steps + 1):
-        a = a0 + span * i / steps
-        px = int(round(cx + r * math.cos(a)))
-        py = int(round(cy + r * math.sin(a)))
-        pts.append((px, py))
-        min_x = min(min_x, px)
-        max_x = max(max_x, px)
-        min_y = min(min_y, py)
-        max_y = max(max_y, py)
-    # Stamp into a layer sized to the arc's bounding box, not the screen —
-    # full-size SRCALPHA allocation + blit cost ~8 ms per call on the Pi.
-    pad = radius + 1
-    ox, oy = min_x - pad, min_y - pad
-    layer = pygame.Surface(
-        (max_x - min_x + 2 * pad, max_y - min_y + 2 * pad), pygame.SRCALPHA
-    )
-    for px, py in pts:
-        pygame.draw.circle(layer, color_rgba, (px - ox, py - oy), radius)
-    surface.blit(layer, (ox, oy))
+
+    key = (round(float(r), 3), round(float(a0), 6), round(float(span), 6),
+           int(width), tuple(color_rgba))
+    entry = _arc_cache.get(key)
+    if entry is None:
+        entry = _stamp_arc(float(r), float(a0), float(span), int(width),
+                           tuple(color_rgba))
+        _arc_cache[key] = entry
+        if len(_arc_cache) > ARC_CACHE_MAX:
+            _arc_cache.popitem(last=False)
+    else:
+        _arc_hits += 1
+        _arc_cache.move_to_end(key)
+
+    layer, dx, dy = entry
+    surface.blit(layer, (int(cx) + dx, int(cy) + dy))

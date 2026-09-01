@@ -140,9 +140,17 @@ def _load() -> None:
 
 
 def lookup(ident: str) -> dict | None:
-    """{"fuel", "beacon", "towered"} for a US airport ident, else None."""
+    """{"fuel", "beacon", "towered"} for a US airport ident, else None.
+
+    Falls back to the FAA local id for synthetic K-prefixed idents
+    (OurAirports lists fields like F70 as KF70; NASR has no such ICAO).
+    """
     _load()
-    return _db.get((ident or "").strip().upper())
+    key = (ident or "").strip().upper()
+    rec = _db.get(key)
+    if rec is None and len(key) == 4 and key.startswith("K"):
+        rec = _db.get(key[1:])
+    return rec
 
 
 def refresh() -> None:

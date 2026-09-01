@@ -121,7 +121,9 @@ VFR_TILE_WORKERS = 4
 CACHE_TTL_S = 7 * 24 * 3600
 # Bump when map tint/placement/styles change, or when tile auth changes so
 # watermarked/unauthorized cached PNGs are not kept after an upgrade.
-CACHE_STYLE_VERSION = 23
+# 24: dark/light bands now resize to ring scale (#187). Old unscaled caches
+# would leave aircraft off the roads until the 7-day TTL expired.
+CACHE_STYLE_VERSION = 24
 
 
 _lock = threading.Lock()
@@ -378,17 +380,20 @@ def _basemap_render_scale(
 ) -> float:
     """Resize factor so tile imagery matches the selected radar range.
 
-    FAA VFR sectionals cap at zoom 12, so at tight ranges the raw tiles are far
-    coarser than the chosen band (e.g. ~30 m/px vs ~9 m/px at 2 mi). Scaling the
-    chart — and the matching aircraft/overlay placement — by this factor keeps a
-    "2 mi" selection meaning 2 mi on both the rings and the chart.
+    Tile zooms are whole numbers, so the nearest one to a band is only ever
+    approximate. Scaling the imagery — and the matching aircraft / overlay
+    placement — by this factor keeps a "2 mi" selection meaning 2 mi on both
+    the rings and the map.
 
-    Only VFR is scaled; dark/light have enough zoom levels to match closely and
-    should stay pixel-crisp.
+    This used to apply to VFR alone, on the assumption that dark and light had
+    enough zoom levels to match closely. They do not. At 33.7 deg N, bands 1
+    and 2 both round to z13 and bands 3 and 4 both round to z12, so those pairs
+    rendered byte-identical basemaps: the rings relabelled and the map did not
+    move. Where the zooms do differ the raw tiles still land 0.70x to 1.16x off
+    the band, which puts the map at a different scale from the aircraft plotted
+    over it.
     """
     style = normalize_map_style(style) if style else _resolved_style()
-    if style != "vfr":
-        return 1.0
     if scale_index < 0 or scale_index >= len(scale.SCALE_BANDS):
         return 1.0
     outer_km = scale.bands()[scale_index]["label_km"]
@@ -825,6 +830,25 @@ def _build_flat_black_background() -> pygame.Surface:
     return _apply_circle_mask(canvas)
 
 
+def _scalable(tile: pygame.Surface) -> pygame.Surface:
+    """A tile smoothscale will accept.
+
+    smoothscale takes 24-bit and 32-bit surfaces only. Tile servers hand back
+    palettised PNGs for the flat styles, which decode to 8-bit. Scaling used
+    to apply to VFR alone, whose tiles are full colour, so the depth never
+    mattered. Covering every style exposed it: the fetch worker raised
+    ValueError and the background was never built.
+
+    convert_alpha needs a live display and this runs on a worker thread, so a
+    plain 32-bit copy is the dependable route.
+    """
+    if tile.get_bitsize() >= 24:
+        return tile
+    out = pygame.Surface(tile.get_size(), pygame.SRCALPHA, 32)
+    out.blit(tile, (0, 0))
+    return out
+
+
 def _build_background(scale_index: int, style: str | None = None) -> pygame.Surface | None:
     try:
         from config import LOCATION_HOME, location_configured
@@ -883,7 +907,9 @@ def _build_background(scale_index: int, style: str | None = None) -> pygame.Surf
             px = center + int(round((tile_px - home_px) * render_scale))
             py = center + int(round((tile_py - home_py) * render_scale))
             if scaled:
-                tile = pygame.transform.smoothscale(tile, (scaled_side, scaled_side))
+                tile = pygame.transform.smoothscale(
+                    _scalable(tile), (scaled_side, scaled_side)
+                )
             canvas.blit(tile, (px, py))
 
     logger.info(

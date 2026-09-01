@@ -36,8 +36,27 @@ def render_text_cached(font: "pygame.font.Font", text: str, color) -> pygame.Sur
     return surf
 
 
+def reset_font_cache() -> None:
+    """Drop cached Font objects before pygame tears the font module down.
+
+    ``pygame.quit()`` frees the freetype faces behind every Font, but the
+    Python objects survive in this cache. Rendering through one afterwards
+    dereferences freed memory and segfaults the interpreter — no exception,
+    no traceback. Call this before any quit that may be followed by more
+    drawing (see ``video.init_display``'s driver fallback).
+    """
+    _font_cache.clear()
+    _text_cache.clear()
+
+
 def load_font(size: int, bold=False) -> pygame.font.Font:
     from display.round_touch.ui_fonts import resolve_font_path
+
+    if not pygame.font.get_init():
+        # Someone tore the font module down. Anything still cached points at
+        # freed faces, so rebuild rather than hand back a crash.
+        pygame.font.init()
+        reset_font_cache()
 
     key = (size, bold)
     if key not in _font_cache:
@@ -456,18 +475,72 @@ def invalidate_background_texture() -> None:
     global _texture_bg, _texture_bg_size
     _texture_bg = None
     _texture_bg_size = 0
+    _invalidate_background_cache()
+
+
+_composite_bg = None
+_composite_bg_key = None
+
+
+def _invalidate_background_cache() -> None:
+    """Drop the composited background (resize, or the texture toggled)."""
+    global _composite_bg, _composite_bg_key
+    _composite_bg = None
+    _composite_bg_key = None
+
+
+def _background_texture_on() -> bool:
+    try:
+        from display.round_touch import settings
+
+        return bool(settings.background_texture())
+    except Exception:
+        return True
+
+
+def _composited_bg_surface() -> pygame.Surface | None:
+    """Background fill with the topo texture already blitted into it.
+
+    The page filled a full screen and then blitted a full-screen texture
+    over the fill, so the fill was thrown away every frame. Compositing
+    once turns that into a single opaque blit.
+    """
+    global _composite_bg, _composite_bg_key
+    textured = _background_texture_on()
+    key = (theme.SIZE, theme.BG, textured)
+    if _composite_bg is not None and _composite_bg_key == key:
+        return _composite_bg
+
+    tile = _textured_bg_surface() if textured else None
+    if tile is None or tile.get_size() != (theme.SIZE, theme.SIZE):
+        # Nothing to bake in — callers fall back to a plain fill.
+        _composite_bg = None
+        _composite_bg_key = key
+        return None
+
+    composite = pygame.Surface((theme.SIZE, theme.SIZE))
+    composite.fill(theme.BG)
+    composite.blit(tile, (0, 0))
+    try:
+        # Display format blits fastest, but convert() needs a live display —
+        # it raises after a pygame.quit(), same trap as the font cache.
+        composite = composite.convert()
+    except pygame.error:
+        pass
+    _composite_bg = composite
+    _composite_bg_key = key
+    return _composite_bg
 
 
 def fill_background_textured(surface: pygame.Surface):
     """Plain background plus the subtle topo texture; silent plain fallback."""
+    composite = _composited_bg_surface()
+    if composite is not None and surface.get_size() == composite.get_size():
+        surface.blit(composite, (0, 0))
+        return
     surface.fill(theme.BG)
-    try:
-        from display.round_touch import settings
-
-        if not settings.background_texture():
-            return
-    except Exception:
-        pass
+    if not _background_texture_on():
+        return
     bg = _textured_bg_surface()
     if bg is not None and surface.get_size() == bg.get_size():
         surface.blit(bg, (0, 0))

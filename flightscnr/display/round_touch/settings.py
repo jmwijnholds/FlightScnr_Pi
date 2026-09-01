@@ -24,6 +24,32 @@ _settings_mtime: float | None = None
 _disk_synced = True
 _last_reload_changed_keys: frozenset[str] = frozenset()
 
+
+class _SettingsState(dict):
+    """Settings dict that remembers which keys this process has assigned.
+
+    The display and the web portal are separate processes, each holding a full
+    copy of the settings. Writing a whole copy back rolled every key the other
+    process had changed since this one last read the file. Recording the keys a
+    setter actually assigns lets ``_save`` write those and leave the rest of
+    the file alone.
+    """
+
+    __slots__ = ("dirty",)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dirty: set[str] = set()
+
+    def __setitem__(self, key, value):
+        self.dirty.add(key)
+        super().__setitem__(key, value)
+
+    def update(self, *args, **kwargs):  # noqa: D102 - dict override
+        other = dict(*args, **kwargs)
+        self.dirty.update(other)
+        super().update(other)
+
 MIN_HEIGHT_OPTIONS = (0, 100, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000)
 # AIS vessels slower than or equal to this (kt) are hidden; 0 = no speed floor.
 VESSEL_MIN_SPEED_OPTIONS = (0, 1, 2, 3, 5, 8, 10, 15)
@@ -319,6 +345,8 @@ _defaults = {
     "airport_icon_style": "classic",
     # large | medium | small_paved | small — smallest airport tier drawn.
     "airport_min_size": "small",
+    # Split-flap arrival / departure board for airports in radar view.
+    "show_flip_board": False,
     # Airport ground vehicles (GRND/GVEH/… icon category) on the radar.
     "show_ground_vehicles": True,
     # Hide AIS vessels at or below this SOG (knots). 0 = show all speeds.
@@ -640,22 +668,49 @@ _ATC_PRESERVE_KEYS = (
 )
 
 
+def _fresh_state(base=None) -> "_SettingsState":
+    """A clean settings state that still tracks assignments.
+
+    Tests reset settings between cases. Assigning a plain ``dict`` to
+    ``_state`` silently turns every later save back into a whole-file write,
+    so use this instead.
+    """
+    return _SettingsState(_defaults if base is None else base)
+
+
+def _read_disk() -> dict | None:
+    """Current file contents, or None when it is missing or unreadable."""
+    try:
+        with open(SETTINGS_PATH, encoding="utf-8") as fh:
+            disk = json.load(fh)
+    except (OSError, json.JSONDecodeError, TypeError):
+        return None
+    return disk if isinstance(disk, dict) else None
+
+
 def _save(data, *, merge_atc_from_disk: bool = True):
     global _state, _settings_mtime, _disk_synced
     out = dict(data)
-    if merge_atc_from_disk:
-        try:
-            with open(SETTINGS_PATH, encoding="utf-8") as fh:
-                disk = json.load(fh)
-            if isinstance(disk, dict):
-                for key in _ATC_PRESERVE_KEYS:
-                    if key in disk:
-                        out[key] = disk[key]
-                        # Module load may call _save before _state is assigned.
-                        if "_state" in globals() and isinstance(_state, dict):
-                            _state[key] = disk[key]
-        except (OSError, json.JSONDecodeError, TypeError):
-            pass
+
+    # Write only the keys this process actually set, over whatever is on disk
+    # right now. Writing a whole stale copy rolled back every preference the
+    # other process had changed since our last read. Callers that pass a plain
+    # dict (``_rmw_save``) have already merged it onto fresh disk contents, so
+    # leave those alone.
+    disk = _read_disk()
+    dirty = getattr(data, "dirty", None)
+    if disk is not None and dirty is not None:
+        changed = {key: out[key] for key in dirty if key in out}
+        out = {**disk, **changed}
+        if merge_atc_from_disk:
+            # Keep the historical guarantee explicit: ATC playback keys are
+            # never rolled back by a save that did not set them.
+            for key in _ATC_PRESERVE_KEYS:
+                if key in disk and key not in changed:
+                    out[key] = disk[key]
+                    # Module load may call _save before _state is assigned.
+                    if "_state" in globals() and isinstance(_state, dict):
+                        _state[key] = disk[key]
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
         tmp_path = SETTINGS_PATH + ".tmp"
@@ -673,6 +728,8 @@ def _save(data, *, merge_atc_from_disk: bool = True):
         except OSError:
             _settings_mtime = None
         _disk_synced = True
+        if dirty is not None:
+            dirty.clear()
     except OSError as exc:
         logger.warning("Could not save display settings to %s: %s", SETTINGS_PATH, exc)
 
@@ -704,7 +761,7 @@ def _rmw_save(updates: dict) -> None:
 def _load():
     fresh = not os.path.exists(SETTINGS_PATH)
     if fresh:
-        state = dict(_defaults)
+        state = _SettingsState(_defaults)
         _seed_from_env(state)
         _save(state)
         logger.info("Created display settings at %s", SETTINGS_PATH)
@@ -715,12 +772,12 @@ def _load():
             data = json.load(f)
     except (OSError, json.JSONDecodeError, TypeError) as exc:
         logger.warning("Could not read %s (%s) — using defaults", SETTINGS_PATH, exc)
-        state = dict(_defaults)
+        state = _SettingsState(_defaults)
         _seed_from_env(state)
         _save(state)
         return state
 
-    state = {**_defaults, **data}
+    state = _SettingsState({**_defaults, **data})
     migrated = False
     if "min_height_ft" not in data:
         state["min_height_ft"] = _env_min_height()
@@ -1182,6 +1239,7 @@ def _settings_snapshot(state: dict) -> tuple:
         state.get("show_airport_icons"),
         str(state.get("airport_icon_style") or "classic"),
         str(state.get("airport_min_size") or "small"),
+        state.get("show_flip_board"),
         state.get("show_ground_vehicles"),
         state.get("vessel_min_speed_kt"),
         state.get("aircraft_min_speed_kt"),
@@ -1923,6 +1981,20 @@ def toggle_show_airport_icons():
 
 def set_show_airport_icons(enabled: bool):
     _state["show_airport_icons"] = bool(enabled)
+    _save(_state)
+
+
+def show_flip_board() -> bool:
+    return bool(_state.get("show_flip_board", False))
+
+
+def toggle_show_flip_board():
+    _state["show_flip_board"] = not show_flip_board()
+    _save(_state)
+
+
+def set_show_flip_board(enabled: bool):
+    _state["show_flip_board"] = bool(enabled)
     _save(_state)
 
 

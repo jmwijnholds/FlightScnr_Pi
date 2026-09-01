@@ -5922,4 +5922,12 @@ class RoundTouchDisplay:
             logger.exception("Display loop crashed")
             raise
         finally:
+            try:
+                from utilities.overhead import flush_flight_counter
+
+                # #185 coalesces disk writes to once a minute. Force the last
+                # minute of unique sightings out before systemd reaps us.
+                flush_flight_counter(force=True)
+            except Exception:
+                logger.exception("Could not flush flight counter on shutdown")
             pygame.quit()

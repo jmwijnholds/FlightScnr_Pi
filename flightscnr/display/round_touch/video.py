@@ -55,6 +55,11 @@ def init_display(width: int, height: int, fullscreen: bool) -> pygame.Surface:
 
     for driver in _driver_candidates():
         if pygame.get_init():
+            # Fonts cached before this attempt point at faces pygame.quit()
+            # is about to free; keeping them segfaults the next render.
+            from display.round_touch import draw
+
+            draw.reset_font_cache()
             pygame.display.quit()
             pygame.quit()
 

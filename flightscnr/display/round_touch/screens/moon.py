@@ -35,7 +35,8 @@ from utilities import sun_moon
 REFRESH_S = 3600.0
 # Shadow alpha: dark enough to read as night side, light enough to keep
 # the topography faintly visible — like the real thing.
-_SHADOW_RGBA = (6, 8, 14, 216)
+# 70%: the unlit limb keeps enough of the texture to see, like earthshine.
+_SHADOW_RGBA = (2, 3, 7, 178)
 MOON_DIAMETER_FRAC = 0.92  # of the visible radius (disc nearly fills the dial)
 _STAR_SEED = 0x20260827
 # Stars live in the visible annulus around the moon limb (the disc hides the
@@ -128,23 +129,25 @@ def build_shadow_mask(size: int, phase: float) -> pygame.Surface:
     c = math.cos(2 * math.pi * phase)
     waxing = (phase % 1.0) < 0.5
     hi = pygame.Surface((hi_size, hi_size), pygame.SRCALPHA)
-    for row in range(hi_size):
-        y = row + 0.5 - r
-        if abs(y) >= r:
-            continue
-        w = math.sqrt(r * r - y * y)
-        # Terminator x for this row; the dark side spans limb → terminator.
-        xt = w * c
-        if waxing:
-            x0, x1 = -w, xt
-        else:
-            x0, x1 = -xt, w
-        if x1 <= x0:
-            continue
-        pygame.draw.line(
-            hi, _SHADOW_RGBA,
-            (int(r + x0), row), (int(r + x1), row),
-        )
+
+    # One polygon: the dark limb's semicircle, closed by the terminator
+    # half-ellipse. Drawn per-scanline before, where truncating each row's
+    # endpoints to whole pixels left the terminator visibly stepped — the
+    # curve looked wrong rather than merely soft.
+    steps = max(48, hi_size // 2)
+    limb_sign = -1.0 if waxing else 1.0   # dark side: left when waxing
+    # Terminator semi-axis, signed from the centre. Mirrored for waning, or
+    # the full moon degenerates the wrong way and paints the whole disc.
+    a = (r * c) if waxing else (-r * c)
+    points = []
+    for i in range(steps + 1):
+        t = -math.pi / 2 + math.pi * (i / steps)      # top pole → bottom pole
+        points.append((r + limb_sign * r * math.cos(t), r + r * math.sin(t)))
+    for i in range(steps + 1):
+        t = math.pi / 2 - math.pi * (i / steps)       # bottom pole → top pole
+        points.append((r + a * math.cos(t), r + r * math.sin(t)))
+    if len(points) >= 3:
+        pygame.draw.polygon(hi, _SHADOW_RGBA, points)
     mask = pygame.transform.smoothscale(hi, (size, size))
     if len(_mask_cache) > 8:
         _mask_cache.clear()

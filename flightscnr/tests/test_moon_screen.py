@@ -375,3 +375,79 @@ class TestDrawSmoke:
             for dx in range(-60, 61, 10)
         )
         assert lit
+
+
+class TestCrescentReadsAsACrescent:
+    """The unlit limb has to disappear into the sky.
+
+    At 85% opacity the shadow still showed enough of the moon texture that a
+    crescent read as a shaded full disc.
+    """
+
+    @staticmethod
+    def _lit_fraction(phase, size=120):
+        import pygame
+
+        from display.round_touch.screens import moon
+
+        disc = pygame.Surface((size, size), pygame.SRCALPHA)
+        pygame.draw.circle(
+            disc, (255, 255, 255, 255), (size // 2, size // 2), size // 2 - 1
+        )
+        disc.blit(moon.build_shadow_mask(size, phase), (0, 0))
+        inside = lit = 0
+        for x in range(size):
+            for y in range(size):
+                r, g, b, a = disc.get_at((x, y))
+                if a < 200:
+                    continue
+                inside += 1
+                if r > 200:
+                    lit += 1
+        return lit / max(1, inside)
+
+    def test_the_shadow_keeps_some_texture(self):
+        """Deliberately not opaque — the unlit limb should still be visible,
+        the way earthshine is."""
+        from display.round_touch.screens import moon
+
+        alpha = moon._SHADOW_RGBA[3]
+        assert 160 <= alpha <= 200, f"shadow alpha {alpha} is outside ~70%"
+
+    def test_a_thin_crescent_is_mostly_dark(self):
+        assert self._lit_fraction(0.10) < 0.3
+
+    def test_full_is_mostly_lit(self):
+        assert self._lit_fraction(0.5) > 0.95
+
+    def test_new_is_essentially_dark(self):
+        assert self._lit_fraction(0.0) < 0.05
+
+    def test_the_quarters_are_about_half(self):
+        for phase in (0.25, 0.75):
+            fraction = self._lit_fraction(phase)
+            assert 0.4 < fraction < 0.6, f"phase {phase} lit {fraction:.2f}"
+
+    def test_waxing_and_waning_light_opposite_limbs(self):
+        import pygame
+
+        from display.round_touch.screens import moon
+
+        size = 120
+
+        def lit_centre_x(phase):
+            disc = pygame.Surface((size, size), pygame.SRCALPHA)
+            pygame.draw.circle(
+                disc, (255, 255, 255, 255), (size // 2, size // 2), size // 2 - 1
+            )
+            disc.blit(moon.build_shadow_mask(size, phase), (0, 0))
+            xs = [
+                x
+                for x in range(size)
+                for y in range(size)
+                if disc.get_at((x, y))[3] >= 200 and disc.get_at((x, y))[0] > 128
+            ]
+            return sum(xs) / max(1, len(xs))
+
+        assert lit_centre_x(0.15) > size / 2, "waxing should light the right limb"
+        assert lit_centre_x(0.85) < size / 2, "waning should light the left limb"

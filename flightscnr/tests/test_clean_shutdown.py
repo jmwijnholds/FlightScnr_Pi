@@ -72,6 +72,13 @@ class TestStopSignalHandling(unittest.TestCase):
             self.assertTrue(display._stop_requested, sig)
             self.assertEqual(display._stop_signal, sig)
 
+    def test_run_force_flushes_the_flight_counter_on_stop(self):
+        import inspect
+        from display.round_touch.app import RoundTouchDisplay
+
+        src = inspect.getsource(RoundTouchDisplay.run)
+        self.assertIn("flush_flight_counter(force=True)", src)
+
 
 class _FakeProc:
     """Minimal stand-in for the Popen handle of the web-portal child."""

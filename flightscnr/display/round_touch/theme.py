@@ -29,8 +29,19 @@ except ImportError:
 TAG_FONT_SCALE = float(_CONFIG_TAG_FONT_SCALE)
 
 
+_S_CACHE: dict[float, int] = {}
+
+
 def s(value: float) -> int:
-    return max(1, int(round(value * SCALE)))
+    # Called ~131 times per settings frame, each over a round(); the answer
+    # only changes when the framebuffer does. _apply_framebuffer_side clears
+    # this, which is the only place SCALE moves.
+    cached = _S_CACHE.get(value)
+    if cached is not None:
+        return cached
+    result = max(1, int(round(value * SCALE)))
+    _S_CACHE[value] = result
+    return result
 
 
 def tag_s(value: float) -> int:
@@ -40,6 +51,7 @@ def tag_s(value: float) -> int:
 
 def _apply_framebuffer_side(side: int) -> None:
     """Recompute layout constants for a square draw buffer."""
+    _S_CACHE.clear()
     global SIZE, SCALE, CENTER_X, CENTER_Y, BEZEL_INSET, VISIBLE_RADIUS
     global GRID_OUTER_RADIUS, CARDINAL_NORTH_OFFSET_Y, CARDINAL_SOUTH_OFFSET_Y
     global CARDINAL_DIAGONAL_INSET, SCALE_GAP_FROM_OUTER_RING, SCALE_GAP_OUTER_RING_KM

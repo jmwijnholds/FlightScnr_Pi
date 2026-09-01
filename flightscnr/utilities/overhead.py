@@ -670,13 +670,23 @@ def _save_counter_log(data: dict) -> None:
         from config import STATS_LOG_DAYS as max_days
     except (ImportError, AttributeError):
         max_days = 0
-    if max_days and max_days > 0:
+    # 0 meant "keep forever", which is how the log reached 625 KB and started
+    # stalling the display loop on every write. Fall back to a bounded window.
+    if not max_days or max_days <= 0:
+        max_days = _COUNTER_DEFAULT_DAYS
+    if max_days > 0:
         from datetime import date, timedelta
         cutoff = str(date.today() - timedelta(days=max_days))
         data = {k: v for k, v in data.items() if k >= cutoff}
     try:
-        with open(COUNTER_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        # Compact, and written to a temp file first. This runs on the display
+        # thread: the file reached 625 KB after three days of sightings, and
+        # re-encoding it pretty-printed stalled the loop long enough to break
+        # swipe detection outright.
+        tmp = COUNTER_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, separators=(",", ":"))
+        os.replace(tmp, COUNTER_FILE)
     except OSError as e:
         logger.warning(f"Could not save flight counter: {e}")
 
@@ -703,11 +713,28 @@ def _counter_ensure_loaded() -> dict:
     return _counter_cache
 
 
-def flush_flight_counter() -> None:
-    """Persist the in-memory flight counter if it changed."""
-    global _counter_dirty
+# Days of sightings to keep. Unbounded growth is what made each write
+# expensive enough to stall the display loop.
+_COUNTER_DEFAULT_DAYS = 7
+# Never re-encode the whole log more often than this. A busy sky marks it
+# dirty many times a minute, and each write costs the same regardless.
+_COUNTER_FLUSH_MIN_S = 60.0
+_counter_last_flush = 0.0
+
+
+def flush_flight_counter(force: bool = False) -> None:
+    """Persist the in-memory flight counter if it changed.
+
+    Coalesced: the whole log is rewritten on every flush, so a burst of new
+    callsigns used to mean a burst of full-file writes on the display thread.
+    """
+    global _counter_dirty, _counter_last_flush
     if not _counter_dirty or _counter_cache is None:
         return
+    now = time()
+    if not force and (now - _counter_last_flush) < _COUNTER_FLUSH_MIN_S:
+        return
+    _counter_last_flush = now
     _save_counter_log(_counter_cache)
     _counter_dirty = False
 

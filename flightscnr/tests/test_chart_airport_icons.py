@@ -85,6 +85,20 @@ class TestFaaDistill:
         assert faa_airports.lookup("ksan")["towered"] is True
         assert faa_airports.lookup("EGLL") is None
 
+    def test_lookup_retries_without_synthetic_k_prefix(self, monkeypatch):
+        # OurAirports idents K-prefix some fields with no real ICAO code
+        # (KF70, KL65); NASR knows them only by the FAA local id.
+        monkeypatch.setattr(faa_airports, "_loaded", True)
+        monkeypatch.setattr(
+            faa_airports, "_db",
+            {"F70": {"fuel": True, "beacon": True, "towered": False}},
+        )
+        assert faa_airports.lookup("KF70")["fuel"] is True
+        assert faa_airports.lookup("F70")["fuel"] is True
+        # Never strip a K that resolves on its own (KSAN stays KSAN),
+        # and never invent a hit for genuinely unknown idents.
+        assert faa_airports.lookup("KZZZ") is None
+
 
 class TestTowerFrequencies:
     def test_rows_with_twr_type_are_towered(self):

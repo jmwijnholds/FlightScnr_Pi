@@ -11,7 +11,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
 from datetime import date, datetime, timedelta
 
@@ -21,6 +23,109 @@ _CACHE: dict = {"ts": 0.0, "payload": None, "date": None}
 _CACHE_TTL_S = 1800  # Match half-hour current-weather cadence
 _FAIL_RETRY_S = 120
 _last_current_slot_key: str | None = None
+
+DATA_DIR = os.environ.get("FLIGHTSCNR_DATA_DIR", "/var/lib/flightscnr")
+CACHE_PATH = os.path.join(DATA_DIR, "weather_cache.json")
+# Keep a disk copy so a restart does not blank the weather. Tomorrow.io is
+# rate limited to one call every half hour, so an in-memory-only cache meant
+# every restart — and every OTA update — left the clock and forecast screens
+# empty until that window reopened.
+_DISK_MAX_AGE_S = 6 * 3600
+CACHE_SCHEMA_VERSION = 2
+
+
+def _migrate_cached_payload(payload: dict, saved_date: object = None) -> dict:
+    """Convert the pre-i18n disk payload to semantic cache schema v2."""
+    out = dict(payload)
+    raw_days = payload.get("days") or []
+    try:
+        base_date = date.fromisoformat(str(saved_date))
+    except (TypeError, ValueError):
+        base_date = datetime.now().date()
+    days: list[dict] = []
+    for index, raw_day in enumerate(raw_days):
+        if not isinstance(raw_day, dict):
+            continue
+        day = dict(raw_day)
+        if not day.get("date"):
+            day["date"] = (base_date + timedelta(days=index)).isoformat()
+        if "sunrise_raw" not in day and "sunrise" in day:
+            day["sunrise_raw"] = day.get("sunrise")
+        if "sunset_raw" not in day and "sunset" in day:
+            day["sunset_raw"] = day.get("sunset")
+        day.pop("label", None)
+        day.pop("weather_label", None)
+        day.pop("sunrise", None)
+        day.pop("sunset", None)
+        days.append(day)
+    out["days"] = days
+    if "sunrise_raw" not in out and "sunrise" in out:
+        out["sunrise_raw"] = out.get("sunrise")
+    if "sunset_raw" not in out and "sunset" in out:
+        out["sunset_raw"] = out.get("sunset")
+    out.pop("weather_label", None)
+    out.pop("sunrise", None)
+    out.pop("sunset", None)
+    return out
+
+
+def _save_cache() -> None:
+    payload = _CACHE.get("payload")
+    if not payload:
+        return
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        tmp = CACHE_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "schema_version": CACHE_SCHEMA_VERSION,
+                    "ts": float(_CACHE.get("ts") or 0.0),
+                    "date": str(_CACHE.get("date") or ""),
+                    "payload": payload,
+                },
+                fh,
+                separators=(",", ":"),
+            )
+        os.replace(tmp, CACHE_PATH)
+    except (OSError, TypeError, ValueError) as exc:
+        logger.debug("Could not persist weather cache: %s", exc)
+
+
+def _load_cache() -> None:
+    """Seed the cache from disk at startup, if it is recent enough."""
+    try:
+        with open(CACHE_PATH, encoding="utf-8") as fh:
+            saved = json.load(fh)
+    except (OSError, json.JSONDecodeError, TypeError):
+        return
+    if not isinstance(saved, dict):
+        return
+    payload = saved.get("payload")
+    if not isinstance(payload, dict):
+        return
+    try:
+        schema_version = int(saved.get("schema_version") or 1)
+    except (TypeError, ValueError):
+        return
+    if schema_version > CACHE_SCHEMA_VERSION or schema_version < 1:
+        return
+    if schema_version < CACHE_SCHEMA_VERSION:
+        payload = _migrate_cached_payload(payload, saved.get("date"))
+    stamp = float(saved.get("ts") or 0.0)
+    if stamp <= 0 or (time.time() - stamp) > _DISK_MAX_AGE_S:
+        return
+    _CACHE["payload"] = payload
+    _CACHE["date"] = saved.get("date") or None
+    # Deliberately keep the original timestamp: the reading is shown right
+    # away, and its age still drives the next refresh.
+    _CACHE["ts"] = stamp
+    logger.info(
+        "Weather restored from disk (%.0f min old)", (time.time() - stamp) / 60
+    )
+
+
+_load_cache()
 
 
 def _today() -> date:
@@ -46,6 +151,13 @@ def _fmt_time(value) -> str:
         text = value.strip()
         if not text:
             return "—"
+        if len(text) == 5 and text[2] == ":":
+            try:
+                hour, minute = (int(part) for part in text.split(":"))
+                if 0 <= hour <= 23 and 0 <= minute <= 59:
+                    return text
+            except ValueError:
+                pass
         if "T" in text:
             try:
                 dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
@@ -255,6 +367,7 @@ def refresh(force: bool = False) -> dict | None:
         _CACHE["ts"] = now
         _CACHE["date"] = today
         _CACHE["payload"] = payload
+        _save_cache()
         return _localized_payload(payload)
 
     temp, humidity = temp_hum if temp_hum else (None, None)
@@ -284,6 +397,7 @@ def refresh(force: bool = False) -> dict | None:
     _CACHE["ts"] = now
     _CACHE["date"] = today
     _CACHE["payload"] = payload
+    _save_cache()
     return _localized_payload(payload)
 
 
@@ -418,6 +532,7 @@ def refresh_current(force: bool = False) -> dict | None:
     _CACHE["ts"] = now
     _CACHE["date"] = today
     _CACHE["payload"] = payload
+    _save_cache()
     return _localized_payload(payload)
 
 
@@ -521,9 +636,21 @@ def tick_scheduled_refresh(
     return True
 
 
+def _drop_disk_cache() -> None:
+    """Remove the restart snapshot. Recenter / unit changes must not restore
+    the old reading after the next process start."""
+    try:
+        os.remove(CACHE_PATH)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        logger.debug("Could not remove weather cache: %s", exc)
+
+
 def invalidate_cache() -> None:
     global _CACHE
     _CACHE = {"ts": 0.0, "payload": None, "date": None}
+    _drop_disk_cache()
     try:
         from utilities.air_quality import invalidate_cache as invalidate_aqi
 
