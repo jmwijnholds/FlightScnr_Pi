@@ -47,9 +47,14 @@ class ScreenTestCase(unittest.TestCase):
         pygame.display.quit()
 
     def setUp(self):
+        from unittest.mock import patch
+
         from display.round_touch.screens import flip_board as screen
 
         screen._reset_for_tests()
+        play = patch("display.round_touch.flap_sound.enabled", return_value=False)
+        play.start()
+        self.addCleanup(play.stop)
 
 
 class TestGeometry(ScreenTestCase):

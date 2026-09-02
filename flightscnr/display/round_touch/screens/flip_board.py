@@ -134,10 +134,10 @@ def is_animating(now: float | None = None) -> bool:
 
 
 def turning_tile_count(now: float | None = None) -> int:
-    """How many tiles are mid-flip, which sets the clatter density.
+    """How many tiles are mid-flip.
 
     Blank slots never flap (see ``_flap_text``), so they are not counted —
-    a mostly empty board should sound sparse, not full.
+    a mostly empty board should look sparse, not full.
     """
     now = time.time() if now is None else now
     count = 0
@@ -172,6 +172,24 @@ def flap_click_offsets(now: float | None = None) -> list[float]:
         return []
     t0 = min(starts)
     return [t - t0 for t in starts]
+
+
+def flap_run_duration_s(now: float | None = None) -> float:
+    """Seconds until the last unfinished flap settles (0 if already still)."""
+    now = time.time() if now is None else now
+    last = 0.0
+    any_tile = False
+    for row, entry in _flap_rows.items():
+        row_t0 = float(entry["started"]) + _FLAP_ROW_STAGGER_S * row
+        for col, char in enumerate(entry["text"]):
+            if not str(char).strip():
+                continue
+            settle_at = row_t0 + _FLAP_COL_STAGGER_S * col + _FLAP_SETTLE_S
+            if now >= settle_at:
+                continue
+            any_tile = True
+            last = max(last, settle_at - now)
+    return last if any_tile else 0.0
 
 
 def _flap_text(row: int, target: str, now: float) -> str:
@@ -464,7 +482,7 @@ def _draw_direction_icon(
     )
 
 
-def _draw_heading(surface: pygame.Surface, airport: dict, y: int) -> int:
+def _draw_heading(surface: pygame.Surface, airport: dict, y: int, now: float | None = None) -> int:
     # Airport code as its own row of oversized flaps in the board's yellow,
     # with the local time on segments beside it, centred against that block.
     ident = str(airport.get("ident") or "").upper()[:4]
@@ -474,7 +492,7 @@ def _draw_heading(surface: pygame.Surface, airport: dict, y: int) -> int:
     # The code is the board's title, so it is centred on the screen. The clock
     # rides in the space to its right rather than sharing a centred block.
     x = (theme.SIZE - ident_w) // 2
-    shown_ident = _flap_text(_IDENT_FLAP_ROW, ident, time.time())
+    shown_ident = _flap_text(_IDENT_FLAP_ROW, ident, time.time() if now is None else now)
     flip_tiles.draw_tiles(
         surface, shown_ident, x, y,
         slots=len(ident) or 1, ink=flip_tiles.YELLOW, scale=scale,
@@ -575,26 +593,41 @@ def _local_clock_text() -> str:
     return f"{now.tm_hour:02d}:{now.tm_min:02d}"
 
 
-def _draw_row(
-    surface: pygame.Surface, event: dict | None, y: int, row: int = 0,
-    now: float | None = None,
-) -> None:
-    now = time.time() if now is None else now
+def _row_target(event: dict | None) -> str:
     ident_text = str((event or {}).get("id") or "")[:ID_SLOTS]
     clock = format_clock(event.get("at") or 0) if event else ""
     hours, _, minutes = clock.partition(":")
     extra = meridiem_slots()
     suffix = clock_meridiem(event.get("at") or 0) if (event and extra) else ""
-
-    # One flap sequence per row: pad each field so column positions — and so
-    # the left-to-right cascade — line up with what is drawn.
-    target = (
+    return (
         ident_text.ljust(ID_SLOTS)
         + hours.rjust(2)
         + minutes.ljust(2)
         + (suffix.ljust(extra) if extra else "")
     )
-    shown = _flap_text(row, target, now)
+
+
+def _prime_flaps(airport: dict, rows: list | None, now: float) -> None:
+    """Stamp flap start times before painting, so clatter can begin first."""
+    ident = str(airport.get("ident") or "").upper()[:4]
+    if ident:
+        _flap_text(_IDENT_FLAP_ROW, ident, now)
+    if rows:
+        for index in range(ROWS):
+            event = rows[index] if index < len(rows) else None
+            _flap_text(index, _row_target(event), now)
+        return
+    for index in range(ROWS):
+        _flap_text(index, _row_target(None), now)
+
+
+def _draw_row(
+    surface: pygame.Surface, event: dict | None, y: int, row: int = 0,
+    now: float | None = None,
+) -> None:
+    now = time.time() if now is None else now
+    extra = meridiem_slots()
+    shown = _flap_text(row, _row_target(event), now)
     ident_text = shown[:ID_SLOTS].rstrip()
     hours = shown[ID_SLOTS:ID_SLOTS + 2].strip()
     minutes = shown[ID_SLOTS + 2:ID_SLOTS + 4].strip()
@@ -637,9 +670,11 @@ def draw_flip_board(surface: pygame.Surface) -> None:
         nav.draw_curved_footer(surface, ["radar"])
         return
 
-    _draw_heading(surface, airport, _heading_top())
-    rows = rows_for(airport)
     now = time.time()
+    rows = rows_for(airport)
+    _prime_flaps(airport, rows, now)
+    flap_sound.tick(duration_s=flap_run_duration_s(now), now=now)
+    _draw_heading(surface, airport, _heading_top(), now=now)
     if rows:
         for index, y in enumerate(row_positions()):
             _draw_row(

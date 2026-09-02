@@ -319,6 +319,8 @@ class RoundTouchDisplay:
         self._hud_mute_fired = False
         self._suppress_next_radar_tap = False
 
+        flap_sound.prepare_async()
+
         radar._init_sweep()
         try:
             enter_setup = bool(wifi_setup_util.should_enter_setup_at_boot())
@@ -4911,8 +4913,7 @@ class RoundTouchDisplay:
             # Split-flap needs real frames; the 2s clock cadence would show
             # two stills instead of tiles turning.
             flap_sound.tick(
-                active_tiles=flip_board.turning_tile_count(now),
-                offsets=flip_board.flap_click_offsets(now),
+                duration_s=flip_board.flap_run_duration_s(now),
                 now=now,
             )
             if (now - self._last_clock_draw) >= (theme.SWEEP_FRAME_MS / 1000.0):
