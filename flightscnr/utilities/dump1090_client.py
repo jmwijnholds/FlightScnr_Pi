@@ -130,15 +130,11 @@ def _to_entry(
     if _haversine_nm(home_lat, home_lon, lat_f, lon_f) > radius_nm:
         return None
 
+    # Min/max altitude is radar declutter only — applied in overhead._grab
+    # before peek_data(). Ingest everything so the flip board can still see
+    # approaches below MIN_HEIGHT.
     alt_ft = _parse_alt_ft(plane)
-    try:
-        from config import passes_altitude_filter
-
-        if not passes_altitude_filter(alt_ft):
-            return None
-    except ImportError:
-        if alt_ft < min_altitude or alt_ft >= 100000:
-            return None
+    _ = min_altitude  # kept for call-site compat; not used as a floor here
 
     callsign = (plane.get("flight") or "").strip()
     plane_type = (plane.get("t") or "").strip()
