@@ -709,7 +709,7 @@ def draw_lines_scrolled(
 
 from display.round_touch import arc_ui  # noqa: E402  (kept near its users)
 
-_CURVED_FOOTER_ORDER = ("pin", "prev", "radar", "back", "next")  # screen left → right
+_CURVED_FOOTER_ORDER = ("pin", "prev", "radar", "back", "next", "board_id")  # screen left → right
 
 
 def __getattr__(name: str):
@@ -770,6 +770,16 @@ def curved_footer_segments(kinds: list[str]) -> list[tuple[str, float, float]]:
                     kind,
                     bottom + offset + side_half + pin_half + gap * 3.0,
                     pin_half,
+                )
+            )
+        elif kind == "board_id":
+            # Mirror of pin: icon-sized, outboard of Next on screen-right.
+            id_half = side_half * 0.42
+            out.append(
+                (
+                    kind,
+                    bottom - offset - side_half - id_half - gap * 3.0,
+                    id_half,
                 )
             )
     return out
@@ -871,6 +881,17 @@ def _draw_curved_footer_uncached(
                     theme.SWEEP if pin_active else glyph_color,
                     (px, py), max(3, size // 4),
                 )
+            continue
+        if kind == "board_id":
+            px = cx + int(round(r * math.cos(mid)))
+            py = cy + int(round(r * math.sin(mid)))
+            try:
+                font = draw.load_font(theme.s(11), bold=True)
+                label = font.render("ID", True, glyph_color)
+            except Exception:
+                label = None
+            if label is not None:
+                surface.blit(label, label.get_rect(center=(px, py)))
             continue
         label = _FOOTER_LABELS.get(kind)
         if not label:

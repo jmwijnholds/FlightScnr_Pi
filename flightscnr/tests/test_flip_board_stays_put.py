@@ -168,9 +168,11 @@ def test_the_pin_sits_left_of_prev():
         (kind, mid)
         for kind, mid, _half in nav.curved_footer_segments(list(flip_board.FOOTER_BUTTONS))
     )
-    assert {"pin", "prev", "radar", "next"} <= set(segments)
+    assert {"pin", "prev", "radar", "next", "board_id"} <= set(segments)
     # Larger angle on the bottom arc is further to screen-left.
     assert segments["pin"] > segments["prev"] > segments["radar"]
+    # ID sits outboard of Next on screen-right (smaller angle).
+    assert segments["board_id"] < segments["next"] < segments["radar"]
 
 
 def test_the_pin_clears_when_the_board_is_reset():

@@ -125,6 +125,79 @@ class TestFlightLabel(unittest.TestCase):
             "hex:ABC123",
         )
 
+    def test_board_label_follows_the_requested_mode(self):
+        event = {
+            "id": "N12345",
+            "tail": "N12345",
+            "callsign": "SKW5796",
+            "flight_number": "UA5796",
+        }
+        self.assertEqual(flip_board.board_label(event, "tail"), "N12345")
+        self.assertEqual(flip_board.board_label(event, "callsign"), "SKW5796")
+        self.assertEqual(flip_board.board_label(event, "flight_number"), "UA5796")
+
+    def test_board_label_falls_back_to_id_on_old_rows(self):
+        self.assertEqual(flip_board.board_label({"id": "N12345"}, "callsign"), "N12345")
+        self.assertEqual(flip_board.board_label({"id": "N12345"}, "flight_number"), "N12345")
+
+    def test_board_label_does_not_use_a_tail_as_the_callsign(self):
+        event = {
+            "id": "N298SY",
+            "tail": "N298SY",
+            "callsign": "N298SY",
+            "flight_number": "N298SY",
+        }
+        self.assertEqual(flip_board.board_label(event, "callsign"), "N298SY")
+        self.assertEqual(flip_board.board_label(event, "flight_number"), "N298SY")
+
+    def test_board_label_prefers_airline_ids_over_the_tail(self):
+        event = {
+            "id": "N68453",
+            "tail": "N68453",
+            "callsign": "UAL2100",
+            "flight_number": "UA2100",
+            "hex": "A8B00",
+        }
+        self.assertEqual(flip_board.board_label(event, "tail"), "N68453")
+        self.assertEqual(flip_board.board_label(event, "callsign"), "UAL2100")
+        self.assertEqual(flip_board.board_label(event, "flight_number"), "UA2100")
+
+    def test_flight_number_mode_uses_callsign_when_marketing_id_is_missing(self):
+        event = {
+            "id": "N298SY",
+            "tail": "N298SY",
+            "callsign": "SKW3736",
+            "flight_number": "",
+        }
+        self.assertEqual(flip_board.board_label(event, "flight_number"), "SKW3736")
+        self.assertEqual(flip_board.board_label(event, "callsign"), "SKW3736")
+
+    def test_identities_do_not_copy_the_tail_into_flight_number(self):
+        ids = flip_board.identities_from_flight(
+            {"registration": "N610SP", "callsign": "N610SP"}
+        )
+        self.assertEqual(ids["tail"], "N610SP")
+        self.assertEqual(ids["flight_number"], "")
+
+    def test_identities_keep_an_atc_callsign_as_the_flight_number(self):
+        ids = flip_board.identities_from_flight(
+            {"registration": "N68453", "callsign": "UAL2100"}
+        )
+        self.assertEqual(ids["callsign"], "UAL2100")
+        self.assertEqual(ids["flight_number"], "UA2100")
+
+    def test_identities_keep_all_three_fields(self):
+        ids = flip_board.identities_from_flight(
+            {
+                "registration": "n12345",
+                "callsign": "skw5796",
+                "flight_number": "ua5796",
+            }
+        )
+        self.assertEqual(ids["tail"], "N12345")
+        self.assertEqual(ids["callsign"], "SKW5796")
+        self.assertEqual(ids["flight_number"], "UA5796")
+
 
 class TestDepartureDetection(unittest.TestCase):
     def setUp(self):
@@ -138,6 +211,23 @@ class TestDepartureDetection(unittest.TestCase):
         self.assertEqual(events[0]["bucket"], "departures")
         self.assertEqual(events[0]["ident"], "KHWD")
         self.assertEqual(events[0]["id"], "N12345")
+        self.assertEqual(events[0]["tail"], "N12345")
+
+    def test_departure_stores_callsign_and_flight_number(self):
+        events = self.tracker.observe(
+            [
+                plane(
+                    altitude=200,
+                    vertical_speed=800,
+                    callsign="SKW5796",
+                    flight_number="UA5796",
+                )
+            ],
+            AIRPORTS,
+            now=1000.0,
+        )
+        self.assertEqual(events[0]["callsign"], "SKW5796")
+        self.assertEqual(events[0]["flight_number"], "UA5796")
 
     def test_departure_is_recorded_only_once(self):
         self.tracker.observe(
@@ -414,12 +504,18 @@ class TestBoardHousekeeping(unittest.TestCase):
             now=now,
         )
 
-    def test_board_keeps_only_the_newest_five(self):
-        for i in range(8):
+    def test_board_keeps_only_the_newest_rows(self):
+        extra = 3
+        total = flip_board.MAX_ROWS + extra
+        for i in range(total):
             self._depart(f"N{i}", 1000.0 + i)
         rows = self.tracker.board("KHWD")["departures"]
+        last = total - 1
         self.assertEqual(len(rows), flip_board.MAX_ROWS)
-        self.assertEqual([r["id"] for r in rows], ["N7", "N6", "N5", "N4", "N3"])
+        self.assertEqual(
+            [r["id"] for r in rows],
+            [f"N{i}" for i in range(last, last - flip_board.MAX_ROWS, -1)],
+        )
 
     def test_newest_movement_is_first(self):
         self._depart("N1", 1000.0)
@@ -483,6 +579,55 @@ class TestPersistence(unittest.TestCase):
             restored.board("KHWD")["departures"][0]["id"], "N12345"
         )
 
+    def test_a_later_snapshot_fills_airline_ids_on_old_rows(self):
+        tracker = flip_board.FlipBoardTracker()
+        tracker.load_dict(
+            {
+                "_version": flip_board.STATE_VERSION,
+                "boards": {
+                    "KSFO": {
+                        "arrivals": [
+                            {
+                                "id": "N68453",
+                                "tail": "",
+                                "callsign": "",
+                                "flight_number": "",
+                                "hex": "A8B00",
+                                "at": 1000.0,
+                                "ident": "KSFO",
+                                "type": "B739",
+                            }
+                        ],
+                        "departures": [],
+                    }
+                },
+            }
+        )
+        tracker.observe(
+            [
+                {
+                    "icao_hex": "A8B00",
+                    "registration": "N68453",
+                    "callsign": "UAL2100",
+                    "flight_number": "UA2100",
+                    "plane": "B739",
+                    "plane_latitude": 38.5,
+                    "plane_longitude": -122.0,
+                    "altitude": 12000,
+                    "vertical_speed": 0,
+                    "on_ground": False,
+                }
+            ],
+            AIRPORTS,
+            now=2000.0,
+        )
+        row = tracker.board("KSFO")["arrivals"][0]
+        self.assertEqual(row["callsign"], "UAL2100")
+        self.assertEqual(row["flight_number"], "UA2100")
+        self.assertEqual(flip_board.board_label(row, "callsign"), "UAL2100")
+        self.assertEqual(flip_board.board_label(row, "flight_number"), "UA2100")
+        self.assertTrue(tracker.identity_changed)
+
     def test_a_bad_version_is_ignored(self):
         restored = flip_board.FlipBoardTracker()
         restored.load_dict({"_version": 999, "boards": {"KHWD": {"arrivals": []}}})
@@ -493,6 +638,53 @@ class TestPersistence(unittest.TestCase):
         restored.load_dict({"_version": flip_board.STATE_VERSION, "boards": "nope"})
         restored.load_dict(None)
         self.assertEqual(restored.idents(), [])
+
+    def test_a_pending_approach_survives_a_restart(self):
+        """Kiosk restart used to drop live tracks, so a landing in progress
+        never made the board — which is how KSFO froze at the last pre-restart
+        arrival.
+        """
+        tracker = flip_board.FlipBoardTracker()
+        approach = plane(
+            plane_latitude=KHWD["lat"] + 0.025,
+            plane_longitude=KHWD["lon"],
+            altitude=KHWD["elevation_ft"] + 900,
+            vertical_speed=-600,
+        )
+        tracker.observe([approach], AIRPORTS, now=1000.0)
+        blob = tracker.to_dict()
+        self.assertIn("tracks", blob)
+        self.assertTrue(blob["tracks"])
+
+        restored = flip_board.FlipBoardTracker()
+        restored.load_dict(blob)
+        restored.observe([], AIRPORTS, now=1000.0 + flip_board.GONE_S + 1)
+        arrivals = restored.board("KHWD")["arrivals"]
+        self.assertEqual(len(arrivals), 1)
+        self.assertEqual(arrivals[0]["id"], "N12345")
+
+    def test_boards_saved_before_tracks_still_load(self):
+        restored = flip_board.FlipBoardTracker()
+        restored.load_dict(
+            {
+                "_version": flip_board.STATE_VERSION,
+                "boards": {
+                    "KHWD": {
+                        "arrivals": [
+                            {
+                                "id": "N12345",
+                                "at": 1000.0,
+                                "ident": "KHWD",
+                            }
+                        ],
+                        "departures": [],
+                    }
+                },
+            }
+        )
+        self.assertEqual(restored.board("KHWD")["arrivals"][0]["id"], "N12345")
+        restored.observe([], AIRPORTS, now=1100.0)
+        self.assertEqual(restored.board("KHWD")["arrivals"][0]["id"], "N12345")
 
     def test_save_writes_the_state_file(self):
         tracker = flip_board.FlipBoardTracker()
@@ -704,6 +896,32 @@ class TestDepartureWithoutAReportedRate(unittest.TestCase):
                 [self._out(1.7, agl, vertical_speed=700)], AIRPORTS, now=t
             )
         self.assertEqual(len(self.tracker.board("KHWD")["departures"]), 1)
+
+    def test_a_4s_descent_without_a_rate_still_arms_an_arrival(self):
+        """Display samples ~4s; a 700 fpm descent only moves ~50 ft per tick.
+
+        Updating the altitude baseline every sample meant the 200 ft gate
+        never fired, so aircraft that omit baro_rate never pending-arrived.
+        """
+        lat = KHWD["lat"] + 1.5 / 60.0
+        for i in range(5):
+            agl = 900 - 50 * i
+            self.tracker.observe(
+                [
+                    plane(
+                        plane_latitude=lat,
+                        plane_longitude=KHWD["lon"],
+                        altitude=KHWD["elevation_ft"] + agl,
+                        vertical_speed=0,
+                    )
+                ],
+                AIRPORTS,
+                now=1000.0 + 4.0 * i,
+            )
+        self.tracker.observe([], AIRPORTS, now=1020.0 + flip_board.GONE_S)
+        arrivals = self.tracker.board("KHWD")["arrivals"]
+        self.assertEqual(len(arrivals), 1, "4s samples never armed the landing")
+        self.assertEqual(arrivals[0]["id"], "N12345")
 
 
 class TestNoDuplicateMovements(unittest.TestCase):

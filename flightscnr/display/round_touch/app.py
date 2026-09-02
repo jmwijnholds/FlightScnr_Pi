@@ -1452,6 +1452,9 @@ class RoundTouchDisplay:
     # Movement detection needs a steady cadence, not every draw. adsb.fi
     # refreshes about every 5s, so sampling at 4s never misses a snapshot.
     _FLIP_BOARD_SAMPLE_S = 4.0
+    # In-progress approach tracks must hit disk even when nothing has landed
+    # yet — otherwise a kiosk restart drops every aircraft already on final.
+    _FLIP_BOARD_TRACK_SAVE_S = 15.0
 
     def _update_flip_board(self, flights: list) -> None:
         """Fold the current radar snapshot into the arrival / departure board.
@@ -1474,12 +1477,22 @@ class RoundTouchDisplay:
             if not airports:
                 return
             events = flip_board_data.tracker().observe(flights, airports, now)
-            if events and self.screen == SCREEN_FLIP_BOARD:
+            identity_changed = bool(flip_board_data.tracker().identity_changed)
+            if self.screen == SCREEN_FLIP_BOARD and (events or identity_changed):
+                # New rows, or older tail-only rows that just got a callsign
+                # from the live feed, should flap to the selected identity.
+                if events:
+                    flap_sound.reset()
+                self._invalidate_timeout_content_cache()
                 self._safe_draw()
-            # Write only when something actually landed or left. A timer would
-            # rewrite an unchanged file every couple of minutes, which is
-            # hundreds of pointless SD writes a day on a quiet field.
-            if events:
+            # Write when something landed or left, when we filled airline
+            # ids onto a row that was stored as tail-only, or on a slow
+            # checkpoint so pending approaches survive a restart.
+            if (
+                events
+                or identity_changed
+                or now - self._flip_board_saved_at >= self._FLIP_BOARD_TRACK_SAVE_S
+            ):
                 self._flip_board_saved_at = now
                 flip_board_data.save()
         except Exception:
@@ -1664,6 +1677,9 @@ class RoundTouchDisplay:
         self._close_atc_picker()
         self._invalidate_timeout_content_cache()
         previous = self.screen
+        if self.screen == SCREEN_FLIP_BOARD:
+            flip_board.close_id_picker()
+            aircraft_tile.dismiss()
         if self.screen in (SCREEN_TRACKED, SCREEN_LIVE):
             tracked.reset_marquee()
         self._radar_visible_since = time.time()
@@ -1728,6 +1744,7 @@ class RoundTouchDisplay:
                 # The tile belongs to the board; leaving closes it, so it does
                 # not reappear over a board the user comes back to later.
                 aircraft_tile.dismiss()
+                flip_board.close_id_picker()
             if self.screen in (SCREEN_TRACKED, SCREEN_LIVE):
                 tracked.reset_marquee()
             self._scroll.reset()
@@ -4082,9 +4099,11 @@ class RoundTouchDisplay:
 
     def _breadcrumb_tapped(self, x: int, y: int) -> bool:
         """Screen-aware breadcrumb hit: curved band on curved-chrome screens."""
+        if self.screen == SCREEN_FLIP_BOARD:
+            return False
         if self.screen in (
             SCREEN_SETTINGS, SCREEN_DETAILS, SCREEN_FLIGHT, SCREEN_FIRE, SCREEN_QUAKE,
-            SCREEN_CLOCK, SCREEN_FLIP_BOARD, SCREEN_FORECAST, SCREEN_UPDATE_NOTES,
+            SCREEN_CLOCK, SCREEN_FORECAST, SCREEN_UPDATE_NOTES,
             SCREEN_TRACKED,
         ):
             return nav.tap_breadcrumb_curved(x, y)
@@ -4721,9 +4740,21 @@ class RoundTouchDisplay:
                 self._note_activity()
                 self._safe_draw()
                 return
+            if flip_board.id_picker_open():
+                choice = flip_board.id_picker_hit(tap[0], tap[1])
+                if choice in settings.FLIP_BOARD_ID_MODES:
+                    settings.set_flip_board_id(choice)
+                    flip_board.close_id_picker()
+                    flip_board.restart_animation(keep_ident=True)
+                else:
+                    flip_board.close_id_picker()
+                self._note_activity()
+                self._safe_draw()
+                return
             action = flip_board.tap_footer_action(tap[0], tap[1])
             if action == "radar":
                 flip_board.clear_pinned()
+                flip_board.close_id_picker()
                 self._return_to_radar()
                 self._safe_draw()
             elif action == "pin":
@@ -4736,6 +4767,10 @@ class RoundTouchDisplay:
                 self._safe_draw()
             elif action == "next":
                 flip_board.step_airport(1)
+                self._note_activity()
+                self._safe_draw()
+            elif action == "board_id":
+                flip_board.open_id_picker()
                 self._note_activity()
                 self._safe_draw()
             else:
@@ -5808,7 +5843,13 @@ class RoundTouchDisplay:
                         # a ~2s beam hitch. Static screens still need a refresh,
                         # but NOT while the timeout ring owns the framebuffer
                         # (ATC/settings countdown) — that was the smooth→stuck→jump loop.
-                        ring_owns = self._timeout_remaining_fraction() is not None
+                        # The arrivals board is the exception: new rows have to
+                        # flap in while that ring is showing, or the board looks
+                        # frozen at the last landing.
+                        ring_owns = (
+                            self._timeout_remaining_fraction() is not None
+                            and self.screen != SCREEN_FLIP_BOARD
+                        )
                         if ring_owns:
                             pass
                         elif self.screen in (SCREEN_TRACKED, SCREEN_LIVE):

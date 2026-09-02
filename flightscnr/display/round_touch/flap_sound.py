@@ -343,6 +343,9 @@ def tick(
         offsets, duration_s=duration_s, active_tiles=active_tiles
     )
     if length <= 0:
+        # Settled. Arm the next run so a new arrival on an already-open
+        # board clatters instead of staying silent after the first turn.
+        _burst_armed = True
         return
     if not _burst_armed:
         return

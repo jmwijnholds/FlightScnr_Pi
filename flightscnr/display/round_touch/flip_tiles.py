@@ -215,6 +215,10 @@ _SEGMENTS = {
     "8": (1, 1, 1, 1, 1, 1, 1),
     "9": (1, 1, 1, 1, 0, 1, 1),
     " ": (0, 0, 0, 0, 0, 0, 0),
+    # A/P on the board clock — same bars as the digits. M is omitted
+    # because it reads as N on seven segments.
+    "A": (1, 1, 1, 1, 1, 1, 0),
+    "P": (1, 1, 1, 1, 1, 0, 0),
 }
 
 
@@ -228,7 +232,7 @@ def _draw_segment_digit(
     surface: pygame.Surface, char: str, x: int, y: int, *,
     show_off: bool = True, scale: float = 1.0
 ) -> None:
-    on = _SEGMENTS.get(char, _SEGMENTS[" "])
+    on = _SEGMENTS.get(char.upper() if char != ":" else char, _SEGMENTS[" "])
     w, h = segment_digit_size(scale)
     t = max(2, h // 8)          # segment thickness
     inset = t // 2
