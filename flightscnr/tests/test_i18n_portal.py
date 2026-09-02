@@ -39,7 +39,7 @@ def portal(tmp_path, monkeypatch):
     monkeypatch.setattr(
         settings, "RELOAD_REQUEST_PATH", str(tmp_path / "round_touch_settings.reload")
     )
-    monkeypatch.setattr(settings, "_state", dict(settings._defaults))
+    monkeypatch.setattr(settings, "_state", settings._fresh_state(settings._defaults))
     monkeypatch.setattr(settings, "_settings_mtime", None)
     monkeypatch.setattr(settings, "_disk_synced", True)
     monkeypatch.setattr(settings, "_last_reload_changed_keys", frozenset())
@@ -66,9 +66,10 @@ def test_catalog_preview_uses_shared_validated_catalog_without_saving(portal):
     assert body["messages"]["portal.language_region.title"] == "Taal en regio"
     assert body["messages"]["portal.section.alerts.title"] == "Waarschuwingen"
     assert body["messages"]["portal.search.placeholder"] == "Instellingen zoeken…"
-    assert body["text_bindings"]["Radar center (lat, lon)"] == "Radarcentrum (lat, lon)"
-    assert body["text_bindings"]["Save route order"] == "Routevolgorde opslaan"
-    assert "airlabs,flightaware,opensky" not in body["text_bindings"]
+    assert body["source_keys"]["Radar center (lat, lon)"] == "portal.radar.center.label"
+    assert body["source_keys"]["Save route order"] == "portal.route_sources.save"
+    assert "System" not in body["source_keys"], "ambiguous source copy needs an explicit key"
+    assert "airlabs,flightaware,opensky" not in body["source_keys"]
     assert {item["locale"] for item in body["languages"]} == {
         "en",
         "nl",
@@ -145,9 +146,32 @@ def test_browser_catalog_application_uses_text_content_not_html(portal):
     assert "el.textContent = translated" in html
     assert "el.placeholder = i18nText" in html
     assert "NodeFilter.SHOW_TEXT" in html
-    assert "i18nState.text_bindings" in html
+    assert "i18nState.source_keys" in html
+    assert "i18nStaticBindingsPrepared" in html
     assert "option.textContent = String(language.native_name" in html
     assert "translated.innerHTML" not in html
+    assert "text_bindings" not in html
+
+
+def test_portal_has_one_date_order_control_and_all_saves_use_it(portal):
+    client, _settings, _web_app, _tmp_path = portal
+
+    html = client.get("/").get_data(as_text=True)
+
+    assert html.count('id="date_order"') == 1
+    assert "date_format_eu" not in html
+    assert 'date_format: $("date_order") ? $("date_order").value : "us"' in html
+
+
+def test_regional_requested_language_is_preserved_as_a_picker_option(portal):
+    client, _settings, _web_app, _tmp_path = portal
+
+    payload = client.get("/i18n/catalog.json?language=nl-NL").get_json()
+    html = client.get("/").get_data(as_text=True)
+
+    assert payload["requested_language"] == "nl-NL"
+    assert payload["effective_language"] == "nl"
+    assert "regionalOption.value = requested" in html
 
 
 def test_template_i18n_attributes_all_exist_in_english_catalog(portal):
@@ -157,12 +181,94 @@ def test_template_i18n_attributes_all_exist_in_english_catalog(portal):
     referenced_keys = set(
         re.findall(r'data-i18n(?:-placeholder)?="([a-z0-9_.-]+)"', html)
     )
+    referenced_keys.update(
+        re.findall(r'i18n(?:Text|Format)\(\s*"([a-z0-9_.-]+)"', html)
+    )
     catalog_keys = set(
         client.get("/i18n/catalog.json?language=en").get_json()["messages"]
     )
 
     assert referenced_keys
     assert referenced_keys <= catalog_keys
+
+
+def test_explicit_english_markup_matches_catalog_exactly(portal):
+    client, _settings, _web_app, _tmp_path = portal
+    html = client.get("/").get_data(as_text=True)
+    catalog = client.get("/i18n/catalog.json?language=en").get_json()["messages"]
+
+    class I18nMarkupParser(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.stack = []
+            self.entries = []
+            self.placeholders = []
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            self.stack.append(
+                {
+                    "tag": tag,
+                    "key": attrs.get("data-i18n"),
+                    "text": [],
+                }
+            )
+            placeholder_key = attrs.get("data-i18n-placeholder")
+            if placeholder_key:
+                self.placeholders.append((placeholder_key, attrs.get("placeholder", "")))
+
+        def handle_startendtag(self, tag, attrs):
+            attrs = dict(attrs)
+            placeholder_key = attrs.get("data-i18n-placeholder")
+            if placeholder_key:
+                self.placeholders.append((placeholder_key, attrs.get("placeholder", "")))
+
+        def handle_data(self, data):
+            for frame in self.stack:
+                if frame["key"]:
+                    frame["text"].append(data)
+
+        def handle_endtag(self, tag):
+            for index in range(len(self.stack) - 1, -1, -1):
+                if self.stack[index]["tag"] != tag:
+                    continue
+                frames = self.stack[index:]
+                del self.stack[index:]
+                for frame in frames:
+                    if frame["key"]:
+                        self.entries.append((frame["key"], "".join(frame["text"])))
+                break
+
+    parser = I18nMarkupParser()
+    parser.feed(html)
+    normalize = lambda value: " ".join(value.split())
+    for key, source in parser.entries + parser.placeholders:
+        assert normalize(source) == normalize(catalog[key]), key
+
+
+def test_dynamic_portal_states_use_semantic_catalog_keys(portal):
+    client, _settings, _web_app, _tmp_path = portal
+    html = client.get("/").get_data(as_text=True)
+
+    required = {
+        "portal.tracking.searching",
+        "portal.updates.in_progress",
+        "portal.system.confirm_reboot",
+        "portal.system.disclaimer_remembered",
+        "portal.atc.loading_channels",
+        "portal.bluetooth.scanning",
+        "portal.export.downloading",
+        "portal.export.applied_restarting",
+        "portal.api_keys.flightaware_usage",
+        "portal.lofi.unpacking",
+        "portal.lofi.pack.downloading_progress",
+    }
+    used = set(re.findall(r'i18n(?:Text|Format)\(\s*"([a-z0-9_.-]+)"', html))
+    assert required <= used
+    assert '"portal.lofi.pack.installed.one"' in html
+    assert '"portal.lofi.pack.installed.other"' in html
+    assert '"portal.lofi.pack.partial.one"' in html
+    assert '"portal.lofi.pack.partial.other"' in html
 
 
 def test_existing_english_navigation_hint_preserves_upstream_copy(portal):

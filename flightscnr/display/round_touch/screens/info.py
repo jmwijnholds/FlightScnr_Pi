@@ -468,6 +468,7 @@ def _build_settings_picker_items(kind: str) -> list[dict]:
     """Discrete choices for settings rows that used to tap-cycle."""
     if kind == "language":
         current = settings.display_language()
+        selection = catalog_for(current)
         out = [
             {
                 "id": "system",
@@ -479,7 +480,12 @@ def _build_settings_picker_items(kind: str) -> list[dict]:
             {
                 "id": info.locale,
                 "label": info.native_name,
-                "selected": current == info.locale,
+                "selected": current == info.locale
+                or (
+                    current != "system"
+                    and selection.effective_language == info.locale
+                    and current.split("-", 1)[0] == info.locale
+                ),
             }
             for info in available_languages()
         )

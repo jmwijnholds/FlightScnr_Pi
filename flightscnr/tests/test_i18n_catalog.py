@@ -17,14 +17,17 @@ import shutil
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from i18n import (  # noqa: E402
+    CatalogError,
     CatalogStore,
     catalog_for,
     format_date,
@@ -86,6 +89,10 @@ class CatalogTests(unittest.TestCase):
                 store.catalog_for(locale).translate("portal.radar.center.label"),
                 "Radar center (lat, lon)",
             )
+        self.assertTrue(
+            all(info.authors for info in store.available_languages()),
+            "every shipped pack must credit its source or translation contributors",
+        )
 
     def test_route_source_identifiers_are_not_translated(self):
         store = CatalogStore(ROOT / "i18n" / "locales")
@@ -99,6 +106,42 @@ class CatalogTests(unittest.TestCase):
                 "airlabs,flightaware,opensky",
                 selected.translate("portal.route_sources.order.hint_after_example"),
             )
+
+    def test_protected_product_and_protocol_names_are_preserved(self):
+        store = CatalogStore(ROOT / "i18n" / "locales")
+        english = store.catalog_for("en").messages
+        protected = (
+            "FlightScnr",
+            "Tomorrow.io",
+            "FR24",
+            "AirLabs",
+            "FlightAware",
+            "OpenSky",
+            "LiveATC",
+            "BlueZ",
+            "Bluetooth",
+            "USB",
+            "ADS-B",
+            "dump1090",
+            "readsb",
+            "tar1090",
+            "RapidAPI",
+            "aisstream.io",
+            "NASA FIRMS",
+            "CARTO",
+            "Stadia",
+            "LightDM",
+            "X11",
+            "GitHub",
+            "ICAO",
+            "IATA",
+        )
+        for locale in ("nl", "de", "fr", "es"):
+            translated = store.catalog_for(locale).messages
+            for key, source in english.items():
+                for token in protected:
+                    if token in source:
+                        self.assertIn(token, translated[key], f"{locale}:{key}")
 
     def test_shipped_dutch_pack_and_regional_fallback(self):
         selected = catalog_for("nl-NL")
@@ -150,6 +193,51 @@ class CatalogTests(unittest.TestCase):
                 selected.translate("forecast.day_number", number=2), "Day 2"
             )
 
+    def test_blank_translation_falls_back_per_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._copy_catalogs(Path(tmp))
+            nl_path = root / "nl" / "messages.json"
+            messages = json.loads(nl_path.read_text(encoding="utf-8"))
+            messages["common.today"] = "   "
+            nl_path.write_text(json.dumps(messages), encoding="utf-8")
+            selected = CatalogStore(root).catalog_for("nl")
+            self.assertEqual(selected.translate("common.today"), "Today")
+            self.assertTrue(
+                any("empty translation" in item for item in selected.warnings)
+            )
+
+    def test_blank_english_message_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._copy_catalogs(Path(tmp))
+            en_path = root / "en" / "messages.json"
+            messages = json.loads(en_path.read_text(encoding="utf-8"))
+            messages["common.today"] = "\t "
+            en_path.write_text(json.dumps(messages), encoding="utf-8")
+            with self.assertRaises(CatalogError):
+                CatalogStore(root)
+
+    def test_duplicate_json_key_rejects_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._copy_catalogs(Path(tmp))
+            nl_path = root / "nl" / "messages.json"
+            text = nl_path.read_text(encoding="utf-8")
+            text = text.replace(
+                '"common.today": "Vandaag",',
+                '"common.today": "Vandaag",\n  "common.today": "Dubbel",',
+                1,
+            )
+            nl_path.write_text(text, encoding="utf-8")
+            self.assertEqual(CatalogStore(root).catalog_for("nl").effective_language, "en")
+
+    def test_unicode_format_control_rejects_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._copy_catalogs(Path(tmp))
+            nl_path = root / "nl" / "messages.json"
+            messages = json.loads(nl_path.read_text(encoding="utf-8"))
+            messages["common.today"] = "Van\u202edaag"
+            nl_path.write_text(json.dumps(messages), encoding="utf-8")
+            self.assertEqual(CatalogStore(root).catalog_for("nl").effective_language, "en")
+
     def test_future_schema_pack_is_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._copy_catalogs(Path(tmp))
@@ -180,6 +268,16 @@ class CatalogTests(unittest.TestCase):
             store = CatalogStore(root)
             self.assertEqual(store.catalog_for("nl").effective_language, "en")
 
+    def test_pack_without_attribution_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._copy_catalogs(Path(tmp))
+            manifest_path = root / "nl" / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["authors"] = []
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            store = CatalogStore(root)
+            self.assertEqual(store.catalog_for("nl").effective_language, "en")
+
     def test_refresh_retains_last_known_good_english(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._copy_catalogs(Path(tmp))
@@ -188,6 +286,51 @@ class CatalogTests(unittest.TestCase):
             english_path.write_text("{broken", encoding="utf-8")
             self.assertFalse(store.refresh())
             self.assertEqual(store.catalog_for("en").translate("common.today"), "Today")
+
+    def test_refresh_retains_last_known_good_on_os_error(self):
+        store = CatalogStore(ROOT / "i18n" / "locales")
+        with mock.patch.object(store, "_build_state", side_effect=OSError("offline")):
+            self.assertFalse(store.refresh())
+        self.assertEqual(store.catalog_for("en").translate("common.today"), "Today")
+
+    def test_payload_is_consistent_during_atomic_state_swaps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._copy_catalogs(Path(tmp))
+            original = CatalogStore(root)
+            original_state = original._state
+
+            for manifest_path in root.glob("*/manifest.json"):
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                manifest["source_catalog_revision"] = 6
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            en_path = root / "en" / "messages.json"
+            messages = json.loads(en_path.read_text(encoding="utf-8"))
+            messages["common.today"] = "Today 6"
+            en_path.write_text(json.dumps(messages), encoding="utf-8")
+            next_state = CatalogStore(root)._state
+
+            def swap_states():
+                for index in range(1000):
+                    with original._lock:
+                        original._state = next_state if index % 2 else original_state
+
+            def read_payloads():
+                observed = []
+                for _index in range(1000):
+                    payload = original.payload_for("en")
+                    observed.append(
+                        (payload["source_catalog_revision"], payload["messages"]["common.today"])
+                    )
+                return observed
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                writer = executor.submit(swap_states)
+                readers = [executor.submit(read_payloads) for _index in range(3)]
+                writer.result()
+                observed = [item for reader in readers for item in reader.result()]
+
+            self.assertTrue(observed)
+            self.assertLessEqual(set(observed), {(5, "Today"), (6, "Today 6")})
 
 
 if __name__ == "__main__":

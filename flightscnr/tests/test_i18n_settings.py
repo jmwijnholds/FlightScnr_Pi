@@ -45,7 +45,7 @@ def _isolated_settings():
         settings.RELOAD_REQUEST_PATH = str(
             Path(tmp) / "round_touch_settings.reload"
         )
-        settings._state = dict(settings._defaults)
+        settings._state = settings._fresh_state(settings._defaults)
         settings._settings_mtime = None
         settings._disk_synced = True
         settings._last_reload_changed_keys = frozenset()

@@ -348,15 +348,24 @@ def i18n_catalog_json():
     payload = catalog_payload(requested)
     selected = catalog_for(requested)
     english = catalog_for("en")
-    text_bindings = {}
+    source_keys = {}
+    ambiguous_sources = set()
     for key, source in english.messages.items():
         if not key.startswith("portal."):
             continue
-        translated = selected.messages.get(key, source)
-        previous = text_bindings.get(source)
-        if previous is None or previous == translated:
-            text_bindings[source] = translated
-    payload["text_bindings"] = text_bindings
+        normalized = " ".join(source.split())
+        if not normalized:
+            continue
+        if normalized in source_keys and source_keys[normalized] != key:
+            ambiguous_sources.add(normalized)
+            continue
+        source_keys[normalized] = key
+    for source in ambiguous_sources:
+        source_keys.pop(source, None)
+    # Compatibility bridge for static upstream markup that has not yet gained
+    # an explicit data-i18n attribute. Values are semantic catalog keys, never
+    # translations, and ambiguous English source strings are deliberately omitted.
+    payload["source_keys"] = source_keys
     now = datetime.now()
     requested_date_order = str(
         request.args.get("date_order") or settings.date_format()

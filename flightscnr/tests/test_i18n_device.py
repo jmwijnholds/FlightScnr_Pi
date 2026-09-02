@@ -60,6 +60,16 @@ class I18nDeviceTests(unittest.TestCase):
         )
         self.assertTrue(next(item for item in items if item["id"] == "nl")["selected"])
 
+    def test_language_picker_selects_effective_pack_for_regional_tag(self):
+        from display.round_touch import settings
+        from display.round_touch.screens import info
+
+        with mock.patch.object(settings, "display_language", return_value="nl-NL"):
+            items = info._build_settings_picker_items("language")
+
+        selected = [item["id"] for item in items if item["selected"]]
+        self.assertEqual(selected, ["nl"])
+
     def test_language_and_date_rows_render_on_native_720_square(self):
         import pygame
         from display.round_touch import settings, theme

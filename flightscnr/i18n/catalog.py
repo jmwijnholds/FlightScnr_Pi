@@ -17,6 +17,7 @@ import os
 import re
 import string
 import threading
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -203,13 +204,39 @@ def _read_json_object(path: Path) -> dict:
         raise CatalogError(f"cannot stat {path.name}: {exc}") from exc
     if size > MAX_CATALOG_BYTES:
         raise CatalogError(f"{path.name} exceeds {MAX_CATALOG_BYTES} bytes")
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise CatalogError(f"duplicate JSON key {key!r} in {path.name}")
+            result[key] = value
+        return result
+
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=unique_object
+        )
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise CatalogError(f"cannot read {path.name}: {exc}") from exc
     if not isinstance(data, dict):
         raise CatalogError(f"{path.name} root must be an object")
     return data
+
+
+def _validated_metadata(value: object, field: str, max_length: int) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise CatalogError(f"manifest {field} is required")
+    if len(text) > max_length:
+        raise CatalogError(f"manifest {field} is too long")
+    if (
+        any(ord(char) < 32 or unicodedata.category(char) == "Cf" for char in text)
+        or "<" in text
+        or ">" in text
+    ):
+        raise CatalogError(f"manifest {field} contains markup/control characters")
+    return text
 
 
 def _validated_manifest(directory: Path) -> tuple[LanguageInfo, str]:
@@ -221,6 +248,8 @@ def _validated_manifest(directory: Path) -> tuple[LanguageInfo, str]:
         raise CatalogError("manifest versions must be integers") from exc
     if schema != SCHEMA_VERSION:
         raise CatalogError(f"unsupported schema_version {schema}")
+    if revision < 1:
+        raise CatalogError("source_catalog_revision must be positive")
     locale = normalize_locale_tag(raw.get("locale"))
     if not locale or locale != directory.name:
         raise CatalogError("manifest locale must match its directory")
@@ -232,24 +261,27 @@ def _validated_manifest(directory: Path) -> tuple[LanguageInfo, str]:
         fallback = DEFAULT_LANGUAGE
     elif fallback != DEFAULT_LANGUAGE:
         raise CatalogError("schema v1 packs must fall back to English")
-    native_name = str(raw.get("native_name") or "").strip()
-    english_name = str(raw.get("english_name") or "").strip()
-    license_name = str(raw.get("license") or "").strip()
+    native_name = _validated_metadata(raw.get("native_name"), "native_name", 80)
+    english_name = _validated_metadata(raw.get("english_name"), "english_name", 80)
+    license_name = _validated_metadata(raw.get("license"), "license", 80)
     authors_raw = raw.get("authors") or []
-    if not native_name or not english_name or not license_name:
-        raise CatalogError("manifest names and license are required")
     if license_name != REQUIRED_LICENSE:
         raise CatalogError(f"manifest license must be {REQUIRED_LICENSE}")
     if not isinstance(authors_raw, list) or any(not isinstance(a, str) for a in authors_raw):
         raise CatalogError("manifest authors must be a string array")
+    authors = tuple(
+        _validated_metadata(author, "authors", 120) for author in authors_raw
+    )
+    if not authors:
+        raise CatalogError("manifest authors must identify a contributor")
     info = LanguageInfo(
         locale=locale,
-        native_name=native_name[:80],
-        english_name=english_name[:80],
+        native_name=native_name,
+        english_name=english_name,
         direction=direction,
         source_catalog_revision=revision,
-        license=license_name[:80],
-        authors=tuple(a.strip()[:120] for a in authors_raw if a.strip()),
+        license=license_name,
+        authors=authors,
     )
     return info, fallback
 
@@ -266,7 +298,11 @@ def _validated_messages(path: Path) -> dict[str, str]:
             raise CatalogError(f"message {key} must be a string")
         if len(value) > MAX_MESSAGE_LENGTH:
             raise CatalogError(f"message {key} is too long")
-        if any(ord(char) < 32 for char in value) or "<" in value or ">" in value:
+        if (
+            any(ord(char) < 32 or unicodedata.category(char) == "Cf" for char in value)
+            or "<" in value
+            or ">" in value
+        ):
             raise CatalogError(f"message {key} contains markup/control characters")
         _placeholder_names(value)
         messages[key] = value
@@ -289,6 +325,9 @@ class CatalogStore:
         english_raw = _validated_messages(english_dir / "messages.json")
         if not english_raw:
             raise CatalogError("English base catalog cannot be empty")
+        empty_english = [key for key, value in english_raw.items() if not value.strip()]
+        if empty_english:
+            raise CatalogError(f"English message cannot be empty: {empty_english[0]}")
         revision = english_info.source_catalog_revision
         english_pack = _Pack(
             info=english_info,
@@ -315,6 +354,9 @@ class CatalogStore:
                     if _placeholder_names(value) != _placeholder_names(english_raw[key]):
                         warnings.append(f"placeholder mismatch; English used: {key}")
                         continue
+                    if not value.strip():
+                        warnings.append(f"empty translation; English used: {key}")
+                        continue
                     effective[key] = value
                 missing = len(set(english_raw) - set(translated))
                 if missing:
@@ -328,7 +370,7 @@ class CatalogStore:
                     messages=MappingProxyType(effective),
                     warnings=tuple(warnings),
                 )
-            except CatalogError as exc:
+            except (CatalogError, OSError) as exc:
                 logger.warning("Skipping language pack %s: %s", directory.name, exc)
         return _CatalogState(
             packs=MappingProxyType(packs),
@@ -339,7 +381,7 @@ class CatalogStore:
         """Build off-lock and atomically swap; retain last-known-good on failure."""
         try:
             next_state = self._build_state()
-        except CatalogError as exc:
+        except (CatalogError, OSError) as exc:
             logger.error("Catalog refresh rejected; keeping last-known-good: %s", exc)
             return False
         with self._lock:
@@ -389,17 +431,33 @@ class CatalogStore:
             return self._active
 
     def payload_for(self, requested: object) -> dict:
-        selection = self.catalog_for(requested)
+        requested_language = normalize_requested_language(requested)
+        resolved = (
+            resolve_system_locale()
+            if requested_language == SYSTEM_LANGUAGE
+            else requested_language
+        )
         with self._lock:
-            revision = self._state.source_catalog_revision
+            state = self._state
+            available = set(state.packs)
+            effective = _resolve_available(resolved, available)
+            pack = state.packs.get(effective) or state.packs[DEFAULT_LANGUAGE]
+            revision = state.source_catalog_revision
+            infos = [item.info for item in state.packs.values()]
+        infos.sort(
+            key=lambda info: (
+                info.locale != DEFAULT_LANGUAGE,
+                info.native_name.casefold(),
+            )
+        )
         return {
             "schema_version": SCHEMA_VERSION,
             "source_catalog_revision": revision,
-            "requested_language": selection.requested_language,
-            "resolved_language": selection.resolved_language,
-            "effective_language": selection.effective_language,
-            "messages": dict(selection.messages),
-            "warnings": list(selection.warnings),
+            "requested_language": requested_language,
+            "resolved_language": resolved,
+            "effective_language": pack.info.locale,
+            "messages": dict(pack.messages),
+            "warnings": list(pack.warnings),
             "languages": [
                 {
                     "locale": info.locale,
@@ -407,7 +465,7 @@ class CatalogStore:
                     "english_name": info.english_name,
                     "direction": info.direction,
                 }
-                for info in self.available_languages()
+                for info in infos
             ],
         }
 
