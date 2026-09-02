@@ -353,8 +353,6 @@ _defaults = {
     "airport_icon_style": "classic",
     # large | medium | small_paved | small — smallest airport tier drawn.
     "airport_min_size": "small",
-    # Split-flap arrival / departure board for airports in radar view.
-    "show_flip_board": False,
     # tail | flight_number | callsign — which identity the board flaps show.
     "flip_board_id": "tail",
     # Airport ground vehicles (GRND/GVEH/… icon category) on the radar.
@@ -1239,7 +1237,6 @@ def _settings_snapshot(state: dict) -> tuple:
         state.get("show_airport_icons"),
         str(state.get("airport_icon_style") or "classic"),
         str(state.get("airport_min_size") or "small"),
-        state.get("show_flip_board"),
         str(state.get("flip_board_id") or "tail"),
         bool(state.get("flip_board_sound", True)),
         state.get("show_ground_vehicles"),
@@ -1957,20 +1954,6 @@ def toggle_show_airport_icons():
 
 def set_show_airport_icons(enabled: bool):
     _state["show_airport_icons"] = bool(enabled)
-    _save(_state)
-
-
-def show_flip_board() -> bool:
-    return bool(_state.get("show_flip_board", False))
-
-
-def toggle_show_flip_board():
-    _state["show_flip_board"] = not show_flip_board()
-    _save(_state)
-
-
-def set_show_flip_board(enabled: bool):
-    _state["show_flip_board"] = bool(enabled)
     _save(_state)
 
 

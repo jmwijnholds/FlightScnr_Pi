@@ -793,7 +793,10 @@ class RoundTouchDisplay:
             if mode in ("marine", "both") and self._ais_vessels:
                 flights.extend(self._ais_vessels)
             self.flights = flights
-            self._update_flip_board(flights)
+            # Board ignores MIN_HEIGHT so approaches below the radar floor
+            # still register; radar keeps the filtered peek_data() list.
+            board_flights = list(self.overhead.peek_data_unfiltered() or [])
+            self._update_flip_board(board_flights)
             if self.screen == SCREEN_FLIGHT:
                 self._sync_selected_flight_index()
         except Exception:
@@ -1867,8 +1870,6 @@ class RoundTouchDisplay:
 
             settings.toggle_show_airport_icons()
             airport_overlay.invalidate()
-        elif action == "flip_board":
-            settings.toggle_show_flip_board()
         elif action == "flip_board_sound":
             settings.toggle_flip_board_sound_enabled()
         elif action == "ground_vehicles":
@@ -4318,8 +4319,8 @@ class RoundTouchDisplay:
         ):
             return
 
-        # Live ← Tracked ← Radar: swipe right moves leftward; swipe left returns.
-        # On radar, swipe left also cycles favorite locations (Home → saved → Home).
+        # Live ← Tracked ← Radar → Flip board: swipe right moves leftward;
+        # swipe left from radar opens the arrivals board when that layer is on.
         # Short flicks still pick aircraft / fires like a tap.
         if swipe and self.screen == SCREEN_RADAR and radial_menu.is_open():
             radial_menu.close()
@@ -4336,9 +4337,14 @@ class RoundTouchDisplay:
                 self._safe_draw()
         elif swipe == input_handler.SWIPE_LEFT and self.screen == SCREEN_RADAR:
             if self._radar_swipe_committed(swipe_start, swipe_end):
-                if self._cycle_favourite_location():
-                    self._note_activity()
-                    self._safe_draw()
+                # Every row turns over on arrival, the way a real board
+                # catches up. A deliberate swipe ends idle-clock so
+                # nothing pulls the user back to radar behind their back.
+                flip_board.restart_animation()
+                self._auto_idle_clock = False
+                self._open_screen(SCREEN_FLIP_BOARD)
+                self._note_activity()
+                self._safe_draw()
             elif self._open_radar_swipe_target(swipe_start, swipe_end):
                 self._safe_draw()
         elif swipe == input_handler.SWIPE_RIGHT and self.screen == SCREEN_TRACKED:
@@ -4370,22 +4376,9 @@ class RoundTouchDisplay:
         elif swipe == input_handler.SWIPE_LEFT and self.screen == SCREEN_FLIEGER_CLOCK:
             self._open_screen(SCREEN_MOON)
             self._safe_draw()
-        elif (
-            swipe == input_handler.SWIPE_LEFT
-            and self.screen == SCREEN_MOON
-            and settings.show_flip_board()
-        ):
-            # Every row turns over on arrival, the way a real board catches up.
-            flip_board.restart_animation()
-            # A deliberate swipe ends the idle-clock state, so nothing pulls
-            # the user back to radar behind their back.
-            self._auto_idle_clock = False
-            self._open_screen(SCREEN_FLIP_BOARD)
-            self._note_activity()
-            self._safe_draw()
         elif swipe == input_handler.SWIPE_RIGHT and self.screen == SCREEN_FLIP_BOARD:
             flip_board.clear_pinned()
-            self._open_screen(SCREEN_MOON)
+            self._return_to_radar()
             self._safe_draw()
         elif swipe == input_handler.SWIPE_RIGHT and self.screen == SCREEN_MOON:
             self._open_screen(SCREEN_FLIEGER_CLOCK)
@@ -4424,7 +4417,7 @@ class RoundTouchDisplay:
             self._return_to_radar()
             self._safe_draw()
         elif swipe == input_handler.SWIPE_LEFT and self.screen == SCREEN_DETAILS:
-            # Settings sits beside About; radar swipe-left cycles favorites.
+            # Settings sits beside About.
             self._open_screen(SCREEN_SETTINGS)
             self.settings_page = info.PAGE_MAIN
             self._note_activity()

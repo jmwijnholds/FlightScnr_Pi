@@ -67,8 +67,6 @@ def enabled() -> bool:
     """Whether the board should make noise at all right now."""
     if not settings.master_sound_enabled():
         return False
-    if not settings.show_flip_board():
-        return False
     if not settings.flip_board_sound_enabled():
         return False
     return not _in_off_hours()

@@ -374,12 +374,8 @@ def draw(surface: pygame.Surface) -> pygame.Rect | None:
         panel.blit(name_font.render(footer, True, muted_rgb), (pad, y + gap))
 
     # Pill through to the arrivals / departures board for this field.
-    # Hidden when the board screen is switched off in Layers: the pill would
-    # open a screen the user cannot otherwise reach.
     from display.round_touch import flip_tiles
-    from display.round_touch import settings as settings_mod
 
-    show_board = settings_mod.show_flip_board()
     btn_h = max(10, theme.s(16))
     btn_w = max(18, theme.s(30))
     btn_x = width - pad - btn_w
@@ -388,22 +384,20 @@ def draw(surface: pygame.Surface) -> pygame.Rect | None:
     # part-transparent colour straight onto the SRCALPHA panel replaces the
     # pixels instead of blending, which punched a translucent hole through
     # the tile and showed the map underneath.
-    _panel_button = None
-    if show_board:
-        pill = pygame.Surface((btn_w, btn_h), pygame.SRCALPHA)
-        pygame.draw.rect(
-            pill, (*accent_rgb, 38), pill.get_rect(), border_radius=btn_h // 2
-        )
-        pygame.draw.rect(
-            pill, (*accent_rgb, 190), pill.get_rect(),
-            width=max(1, theme.s(1)), border_radius=btn_h // 2,
-        )
-        flip_tiles.draw_direction_icon(
-            pill, btn_w // 2, btn_h // 2, int(btn_h * 0.72), accent_rgb,
-            departing=False,
-        )
-        panel.blit(pill, (btn_x, btn_y))
-        _panel_button = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+    pill = pygame.Surface((btn_w, btn_h), pygame.SRCALPHA)
+    pygame.draw.rect(
+        pill, (*accent_rgb, 38), pill.get_rect(), border_radius=btn_h // 2
+    )
+    pygame.draw.rect(
+        pill, (*accent_rgb, 190), pill.get_rect(),
+        width=max(1, theme.s(1)), border_radius=btn_h // 2,
+    )
+    flip_tiles.draw_direction_icon(
+        pill, btn_w // 2, btn_h // 2, int(btn_h * 0.72), accent_rgb,
+        departing=False,
+    )
+    panel.blit(pill, (btn_x, btn_y))
+    _panel_button = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
 
     anchor_xy = None
     try:
@@ -419,14 +413,10 @@ def draw(surface: pygame.Surface) -> pygame.Rect | None:
     rect = place_rect((width, height), (int(anchor_xy[0]), int(anchor_xy[1])))
     surface.blit(panel, rect)
     _last_rect = pygame.Rect(rect)
-    if _panel_button is None:
-        # No pill drawn, so leave no target behind for a finger to find.
-        _board_button_rect = None
-    else:
-        _board_button_rect = pygame.Rect(
-            rect.x + _panel_button.x, rect.y + _panel_button.y,
-            _panel_button.width, _panel_button.height,
-        )
+    _board_button_rect = pygame.Rect(
+        rect.x + _panel_button.x, rect.y + _panel_button.y,
+        _panel_button.width, _panel_button.height,
+    )
     return rect
 
 

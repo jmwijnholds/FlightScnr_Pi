@@ -29,34 +29,6 @@ PORTAL_HTML = os.path.join(REPO_ROOT, "web", "templates", "index.html")
 
 
 class TestSetting(unittest.TestCase):
-    def test_setting_defaults_to_off(self):
-        from display.round_touch import settings
-
-        self.assertIn("show_flip_board", settings._defaults)
-        self.assertFalse(settings._defaults["show_flip_board"])
-
-    def test_setter_and_toggle_round_trip(self):
-        from display.round_touch import settings
-
-        original = settings.show_flip_board()
-        try:
-            settings.set_show_flip_board(True)
-            self.assertTrue(settings.show_flip_board())
-            settings.toggle_show_flip_board()
-            self.assertFalse(settings.show_flip_board())
-        finally:
-            settings.set_show_flip_board(original)
-
-    def test_setting_is_in_the_portal_sync_snapshot(self):
-        """Otherwise a portal-only change is treated as a no-op on reload."""
-        from display.round_touch import settings
-
-        state = dict(settings._defaults)
-        state["show_flip_board"] = False
-        off = settings._settings_snapshot(state)
-        state["show_flip_board"] = True
-        self.assertNotEqual(off, settings._settings_snapshot(state))
-
     def test_sound_setting_is_in_the_portal_sync_snapshot(self):
         """Board flip sound is portal-synced; omit it and a save reverts."""
         from display.round_touch import settings
@@ -87,26 +59,32 @@ class TestSetting(unittest.TestCase):
         finally:
             settings.set_flip_board_id(original)
 
+    def test_board_on_off_setting_is_gone(self):
+        from display.round_touch import settings
+
+        self.assertNotIn("show_flip_board", settings._defaults)
+        self.assertFalse(hasattr(settings, "show_flip_board"))
+
 
 class TestDeviceSettingsRow(unittest.TestCase):
     def test_layers_actions_and_labels_stay_aligned(self):
         from display.round_touch.screens import info
 
-        # layers_actions() is the rendered list; LAYERS_ACTIONS is the full
-        # set before rows whose parent feature is off are dropped.
         self.assertEqual(len(info.layers_actions()), len(info._layers_row_labels()))
 
-    def test_row_has_a_toggle_state_reader(self):
+    def test_sound_row_has_a_toggle_state_reader(self):
         from display.round_touch.screens import info
 
-        self.assertIn("flip_board", info.LAYERS_ACTIONS)
-        self.assertIn("flip_board", info._TOGGLE_ROW_STATE)
+        self.assertIn("flip_board_sound", info.HUD_ACTIONS)
+        self.assertIn("flip_board_sound", info._TOGGLE_ROW_STATE)
+        self.assertNotIn("flip_board_sound", info.LAYERS_ACTIONS)
+        self.assertNotIn("flip_board", info.LAYERS_ACTIONS)
 
     def test_action_index_matches_its_label(self):
         from display.round_touch.screens import info
 
-        index = info.LAYERS_ACTIONS.index("flip_board")
-        self.assertIn("Board", info._layers_row_labels()[index])
+        index = info.HUD_ACTIONS.index("flip_board_sound")
+        self.assertIn("Board Flip Sound", info._hud_row_labels()[index])
 
 
 class TestScreenIsRegistered(unittest.TestCase):
@@ -138,6 +116,46 @@ class TestScreenIsRegistered(unittest.TestCase):
         self.assertFalse(app.RoundTouchDisplay._breadcrumb_tapped(fake, x, y))
 
 
+class TestRadarSwipeEntry(unittest.TestCase):
+    """Board sits beside radar; Moon is no longer on the path."""
+
+    def _nav_source(self) -> str:
+        from display.round_touch import app
+
+        return inspect.getsource(app.RoundTouchDisplay._handle_navigation)
+
+    def test_radar_left_always_opens_the_board(self):
+        source = self._nav_source()
+        self.assertIn("SWIPE_LEFT and self.screen == SCREEN_RADAR", source)
+        self.assertIn("SCREEN_FLIP_BOARD", source)
+        self.assertNotIn("show_flip_board", source)
+        self.assertNotIn("_cycle_favourite_location()", source)
+
+    def test_moon_no_longer_opens_the_board(self):
+        source = self._nav_source()
+        self.assertNotIn("show_flip_board", source)
+        # Still navigate among clocks ending at Moon.
+        self.assertIn("SWIPE_LEFT and self.screen == SCREEN_FLIEGER_CLOCK", source)
+        self.assertIn("SCREEN_MOON", source)
+
+    def test_board_right_returns_to_radar(self):
+        source = self._nav_source()
+        block_start = source.index("SWIPE_RIGHT and self.screen == SCREEN_FLIP_BOARD")
+        block = source[block_start : block_start + 220]
+        self.assertIn("_return_to_radar()", block)
+        self.assertNotIn("SCREEN_MOON", block)
+
+    def test_portal_hint_names_radar_not_moon(self):
+        html = open(PORTAL_HTML, encoding="utf-8").read()
+        self.assertIn("Swipe left from the radar", html)
+        self.assertNotIn("Swipe left from the Moon screen", html)
+
+    def test_portal_favorites_hint_drops_radar_swipe(self):
+        html = open(PORTAL_HTML, encoding="utf-8").read()
+        self.assertNotIn("Swipe left on the radar to cycle", html)
+        self.assertIn("Settings → Options → Favorite Locations", html)
+
+
 class TestPortalWiring(unittest.TestCase):
     def _portal_app(self) -> str:
         return open(PORTAL_APP, encoding="utf-8").read()
@@ -145,18 +163,9 @@ class TestPortalWiring(unittest.TestCase):
     def _portal_html(self) -> str:
         return open(PORTAL_HTML, encoding="utf-8").read()
 
-    def test_portal_reports_the_setting(self):
-        self.assertIn(
-            '"show_flip_board": settings.show_flip_board()', self._portal_app()
-        )
-
-    def test_portal_saves_the_setting(self):
-        source = self._portal_app()
-        self.assertIn('if "show_flip_board" in data:', source)
-        self.assertIn("settings.set_show_flip_board(", source)
-
-    def test_template_has_the_control(self):
-        self.assertIn('id="show_flip_board"', self._portal_html())
+    def test_portal_no_longer_exposes_board_on_off(self):
+        self.assertNotIn("show_flip_board", self._portal_app())
+        self.assertNotIn("show_flip_board", self._portal_html())
 
     def test_template_has_the_id_control(self):
         html = self._portal_html()
@@ -169,20 +178,15 @@ class TestPortalWiring(unittest.TestCase):
         self.assertIn('if "flip_board_id" in data:', source)
         self.assertIn("settings.set_flip_board_id(", source)
 
-    def test_template_hydrates_the_control(self):
-        self.assertIn(
-            '$("show_flip_board").checked = !!r.show_flip_board', self._portal_html()
-        )
-
-    def test_every_save_payload_carries_the_key(self):
-        """Both save paths must send it or one silently resets the setting."""
+    def test_every_save_payload_carries_sound_and_id(self):
+        """Both save paths must send them or one silently resets the setting."""
         html = self._portal_html()
         payloads = len(re.findall(r"show_ground_vehicles:\s*\$\(", html))
-        sent = len(re.findall(r"show_flip_board:\s*\$\(", html))
-        self.assertEqual(sent, payloads)
-        self.assertGreaterEqual(sent, 2)
+        sound = len(re.findall(r"flip_board_sound:\s*\$\(", html))
         ids = len(re.findall(r"flip_board_id:\s*\$\(", html))
+        self.assertEqual(sound, payloads)
         self.assertEqual(ids, payloads)
+        self.assertGreaterEqual(payloads, 2)
 
 
 class TestVisibleAirports(unittest.TestCase):
