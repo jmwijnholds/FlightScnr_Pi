@@ -28,6 +28,10 @@ _prev_bubble_rect: pygame.Rect | None = None
 _prev_airport_callout_rect: pygame.Rect | None = None
 _prev_airport_tile_rect: pygame.Rect | None = None
 _prev_lofi_rect: pygame.Rect | None = None
+_prev_lofi_tile_rect: pygame.Rect | None = None
+# Rendered lofi tile stamp, kept while its content and rotation hold.
+_lofi_tile_stamp = None
+_lofi_tile_stamp_key = None
 _prev_radial_rect: pygame.Rect | None = None
 _prev_location_toast_rect: pygame.Rect | None = None
 # Radar layer generation seen but not yet rotated/swapped (one-frame pipeline).
@@ -150,6 +154,7 @@ def present_radar_sweep(
     global _next_base, _next_base_key, _prev_hud_rect, _prev_bubble_rect
     global _prev_airport_callout_rect, _prev_location_toast_rect
     global _prev_airport_tile_rect, _prev_lofi_rect, _prev_radial_rect
+    global _prev_lofi_tile_rect
     from display.round_touch import draw
 
     rotation = rotation_degrees()
@@ -217,6 +222,7 @@ def present_radar_sweep(
         _prev_airport_callout_rect = None
         _prev_airport_tile_rect = None
         _prev_lofi_rect = None
+        _prev_lofi_tile_rect = None
         _prev_radial_rect = None
         _prev_location_toast_rect = None
         full_refresh = True
@@ -264,6 +270,15 @@ def present_radar_sweep(
             display.blit(_rot_base, r.topleft, src)
         if _prev_airport_tile_rect is not None:
             r = _prev_airport_tile_rect
+            src = pygame.Rect(
+                r.x - origin_off[0],
+                r.y - origin_off[1],
+                r.w,
+                r.h,
+            )
+            display.blit(_rot_base, r.topleft, src)
+        if _prev_lofi_tile_rect is not None:
+            r = _prev_lofi_tile_rect
             src = pygame.Rect(
                 r.x - origin_off[0],
                 r.y - origin_off[1],
@@ -336,6 +351,10 @@ def present_radar_sweep(
     # Lofi track pill (marquee title animates, so it stamps every frame).
     lofi_dirty = _blit_lofi_controls(display, origin_off, rotation)
     _prev_lofi_rect = lofi_dirty
+    # The lofi track tile sits above the pill that opens it.
+    old_lofi_tile = _prev_lofi_tile_rect
+    lofi_tile_dirty = _blit_lofi_tile(display, origin_off, rotation)
+    _prev_lofi_tile_rect = lofi_tile_dirty
     # Airport METAR tile rides above the HUD.
     tile_dirty = _blit_airport_tile(display, origin_off, rotation)
     _prev_airport_tile_rect = tile_dirty
@@ -362,6 +381,8 @@ def present_radar_sweep(
                 location_dirty,
                 old_lofi,
                 lofi_dirty,
+                old_lofi_tile,
+                lofi_tile_dirty,
                 old_tile,
                 tile_dirty,
                 old_radial,
@@ -679,6 +700,73 @@ def _blit_lofi_controls(
     )
     dst = pygame.Rect(src.x + rot_off[0], src.y + rot_off[1], src.w, src.h)
     display.blit(rotated, dst.topleft, src)
+    return dst
+
+
+def _blit_lofi_tile(
+    display: pygame.Surface,
+    origin_off: tuple[int, int],
+    rotation: int,
+) -> pygame.Rect | None:
+    """Stamp the lofi track tile (logical to display).
+
+    The radar present path shows a cached frame layer, not the drawing
+    surface, so an overlay painted onto that surface never reaches the
+    panel. Stamping here is how the METAR tile and the pill already work.
+    """
+    try:
+        from display.round_touch import lofi_tile
+    except ImportError:
+        return None
+    if not lofi_tile.is_open():
+        return None
+    try:
+        from display.round_touch import airport_tile
+
+        if airport_tile.is_open():
+            return None
+    except ImportError:
+        pass
+
+    global _lofi_tile_stamp, _lofi_tile_stamp_key
+    key = (lofi_tile.stamp_key(), rotation, theme.SIZE)
+    if _lofi_tile_stamp is None or _lofi_tile_stamp_key != key:
+        # Rendering and rotating a full-size surface every frame costs a whole
+        # core, and the tile only changes when its track or pause state does.
+        logical = pygame.Surface((theme.SIZE, theme.SIZE), pygame.SRCALPHA)
+        dirty = lofi_tile.draw(logical)
+        if dirty is None or dirty.width <= 0 or dirty.height <= 0:
+            return None
+        if rotation % 360 == 0:
+            _lofi_tile_stamp = (logical.subsurface(dirty).copy(), dirty)
+        else:
+            try:
+                rotated = pygame.transform.rotate(logical, -rotation)
+            except pygame.error:
+                return None
+            src = _rotate_rect_aabb(dirty.inflate(2, 2), rotation, theme.SIZE)
+            rw, rh = rotated.get_width(), rotated.get_height()
+            src = pygame.Rect(
+                src.x + (rw - theme.SIZE) // 2,
+                src.y + (rh - theme.SIZE) // 2,
+                src.w,
+                src.h,
+            ).clip(pygame.Rect(0, 0, rw, rh))
+            if src.width <= 0 or src.height <= 0:
+                return None
+            offset = (
+                src.x + (theme.SIZE - rw) // 2,
+                src.y + (theme.SIZE - rh) // 2,
+            )
+            _lofi_tile_stamp = (
+                rotated.subsurface(src).copy(),
+                pygame.Rect(offset[0], offset[1], src.w, src.h),
+            )
+        _lofi_tile_stamp_key = key
+
+    stamp, at = _lofi_tile_stamp
+    dst = pygame.Rect(at.x + origin_off[0], at.y + origin_off[1], at.w, at.h)
+    display.blit(stamp, dst.topleft)
     return dst
 
 

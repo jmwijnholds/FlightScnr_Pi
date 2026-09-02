@@ -298,3 +298,5 @@ That content is published under a **Standard Digital File License**, which inclu
 > You shall not share, sub-license, sell, rent, host, transfer, or distribute in any way the digital or 3D printed versions of this object, nor any other derivative work of this object in its digital or physical format (including - but not limited to - remixes of this object, and hosting on other digital platforms). The objects may not be used without permission in any way whatsoever in which you charge money, or collect fees.
 
 Always read the full license on MakerWorld before downloading, printing, or sharing the enclosure design.
+
+![Alt](https://repobeats.axiom.co/api/embed/6bd14456b07026f3f6c45288bf9debf905b9898e.svg "Repobeats analytics image")

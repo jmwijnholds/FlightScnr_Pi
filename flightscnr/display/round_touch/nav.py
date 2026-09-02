@@ -709,7 +709,7 @@ def draw_lines_scrolled(
 
 from display.round_touch import arc_ui  # noqa: E402  (kept near its users)
 
-_CURVED_FOOTER_ORDER = ("prev", "radar", "next")  # screen left → right
+_CURVED_FOOTER_ORDER = ("pin", "prev", "radar", "back", "next")  # screen left → right
 
 
 def __getattr__(name: str):
@@ -758,6 +758,20 @@ def curved_footer_segments(kinds: list[str]) -> list[tuple[str, float, float]]:
             out.append((kind, bottom + offset, side_half))
         elif kind == "next":
             out.append((kind, bottom - offset, side_half))
+        elif kind == "back":
+            # Standalone back pill sits at the exact bottom of the rim.
+            out.append((kind, bottom, side_half))
+        elif kind == "pin":
+            # Icon-sized rather than pill-sized, and outboard of prev's own
+            # span plus a gap, so the two never run together.
+            pin_half = side_half * 0.42
+            out.append(
+                (
+                    kind,
+                    bottom + offset + side_half + pin_half + gap * 3.0,
+                    pin_half,
+                )
+            )
     return out
 
 
@@ -795,26 +809,30 @@ def _fallback_radar_glyph(size: int, glyph_color) -> pygame.Surface:
     return icon
 
 
-_FOOTER_LABELS = {"prev": "Prev", "next": "Next"}
+_FOOTER_LABELS = {"prev": "Prev", "next": "Next", "back": "Back"}
 
 
-def draw_curved_footer(surface: pygame.Surface, kinds: list[str]) -> None:
+def draw_curved_footer(
+    surface: pygame.Surface, kinds: list[str], *, pin_active: bool = False
+) -> None:
     """Curved footer: frosted Prev/Next pills + bare oversized radar art."""
     if not kinds:
         return
     from display.round_touch import radar_hud
 
     glyph_color, fill_rgba = radar_hud._hud_chrome()
-    key = (tuple(kinds), tuple(glyph_color), tuple(fill_rgba))
+    key = (tuple(kinds), tuple(glyph_color), tuple(fill_rgba), bool(pin_active))
     surf_pos = _overlay_cached(
         _footer_cache, key,
-        lambda tmp: _draw_curved_footer_uncached(tmp, kinds),
+        lambda tmp: _draw_curved_footer_uncached(tmp, kinds, pin_active=pin_active),
     )
     if surf_pos and surf_pos[0] is not None:
         surface.blit(surf_pos[0], surf_pos[1])
 
 
-def _draw_curved_footer_uncached(surface: pygame.Surface, kinds: list[str]) -> None:
+def _draw_curved_footer_uncached(
+    surface: pygame.Surface, kinds: list[str], *, pin_active: bool = False
+) -> None:
     from display.round_touch import radar_hud
 
     glyph_color, fill_rgba = radar_hud._hud_chrome()
@@ -836,6 +854,24 @@ def _draw_curved_footer_uncached(surface: pygame.Surface, kinds: list[str]) -> N
             surface, cx, cy, r, mid, band, fill_rgba,
             arc_a0=mid - half, arc_a1=mid + half,
         )
+        if kind == "pin":
+            # Icon rather than a curved word: "PIN IT" does not fit the span,
+            # and the state needs to read at a glance.
+            size = theme.s(16)
+            icon = buttons.load_button_surface(
+                "pin_active" if pin_active else "pin", size, size
+            )
+            px = cx + int(round(r * math.cos(mid)))
+            py = cy + int(round(r * math.sin(mid)))
+            if icon is not None:
+                surface.blit(icon, icon.get_rect(center=(px, py)))
+            else:
+                pygame.draw.circle(
+                    surface,
+                    theme.SWEEP if pin_active else glyph_color,
+                    (px, py), max(3, size // 4),
+                )
+            continue
         label = _FOOTER_LABELS.get(kind)
         if not label:
             continue

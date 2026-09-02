@@ -127,6 +127,8 @@ LAYERS_ACTIONS = (
     "airport_icons",
     "airport_icon_style",
     "airport_size",
+    "flip_board",
+    "flip_board_sound",
     "ground_vehicles",
     "idle_clock",
     "default_clock",
@@ -2057,7 +2059,7 @@ def _row_actions(page: int) -> tuple[str, ...]:
     if page == PAGE_OPTIONS:
         return OPTIONS_ACTIONS
     if page == PAGE_LAYERS:
-        return LAYERS_ACTIONS
+        return layers_actions()
     if page == PAGE_ATC:
         return atc_actions()
     if page == PAGE_ATC_QUIET:
@@ -3023,9 +3025,21 @@ def _options_row_labels() -> list[str]:
     ]
 
 
+def layers_actions() -> tuple:
+    """Layers rows, minus any whose parent feature is switched off.
+
+    The flip-sound row sets the volume of a board that never turns while the
+    board itself is off, so it is dropped there. ``_layers_row_labels`` drops
+    the matching label; the two lists are read in parallel.
+    """
+    if settings.show_flip_board():
+        return LAYERS_ACTIONS
+    return tuple(a for a in LAYERS_ACTIONS if a != "flip_board_sound")
+
+
 def _layers_row_labels() -> list[str]:
     # Every overlay row but the traffic selector is a switch (label only here).
-    return [
+    labels = [
         f"Select Traffic › {settings.traffic_mode_label()}",
         "Show Precipitation",
         "Show Wildfires",
@@ -3034,6 +3048,7 @@ def _layers_row_labels() -> list[str]:
         "Show Airport Icons",
         f"Icon Style \u203a {settings.airport_icon_style_label()}",
         f"Airports \u203a {settings.airport_min_size_label()}",
+        "Arrival / Departure Board",
         "Show Ground Vehicles",
         "Auto Idle Clock",
         f"Daytime Clock › {settings.default_clock_label()}",
@@ -3042,6 +3057,10 @@ def _layers_row_labels() -> list[str]:
         "Alert on emergency squawk (7700/7600/7500)",
         "Hide non-alerted aircraft on radar",
     ]
+    if settings.show_flip_board():
+        # Keep the label beside its row: layers_actions() drops the same one.
+        labels.insert(LAYERS_ACTIONS.index("flip_board_sound"), "Board Flip Sound")
+    return labels
 
 
 # Rows drawn as "label + pill switch". The whole row stays tappable, so the
@@ -3060,6 +3079,8 @@ _TOGGLE_ROW_STATE = {
     "earthquakes": settings.show_earthquakes,
     "airport_centerlines": settings.show_airport_centerlines,
     "airport_icons": settings.show_airport_icons,
+    "flip_board": settings.show_flip_board,
+    "flip_board_sound": settings.flip_board_sound_enabled,
     "ground_vehicles": settings.show_ground_vehicles,
     "idle_clock": settings.auto_idle_clock_enabled,
     "alert_military": alert_prefs.military_enabled,
@@ -3574,7 +3595,7 @@ def draw_info(
             display_focus,
             top,
             bottom,
-            actions=LAYERS_ACTIONS,
+            actions=layers_actions(),
         )
 
     elif page == PAGE_ATC:

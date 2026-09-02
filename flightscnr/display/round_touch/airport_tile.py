@@ -42,6 +42,9 @@ _fetch_done_at = 0.0
 _opened_at = 0.0
 _closed_reported = True
 _last_rect: "pygame.Rect | None" = None
+# Screen rect of the "open the arrivals board" pill, in panel-relative terms
+# resolved at blit time. None while the tile is closed or the pill is hidden.
+_board_button_rect: "pygame.Rect | None" = None
 
 
 def _reset_for_tests() -> None:
@@ -92,6 +95,9 @@ def open_tile(airport: dict) -> None:
     if _airport is not None and str(_airport.get("ident") or "").upper() == ident:
         dismiss()
         return
+    import display.round_touch.lofi_tile as lofi_tile
+
+    lofi_tile.dismiss()
     _airport = dict(airport)
     _metar = None
     _fetch_done = False
@@ -106,11 +112,12 @@ def is_open() -> bool:
 
 
 def dismiss() -> None:
-    global _airport, _metar, _fetch_done, _last_rect
+    global _airport, _metar, _fetch_done, _last_rect, _board_button_rect
     _airport = None
     _metar = None
     _fetch_done = False
     _last_rect = None
+    _board_button_rect = None
 
 
 def hit(x: int, y: int) -> bool:
@@ -118,6 +125,15 @@ def hit(x: int, y: int) -> bool:
     if _airport is None or _last_rect is None:
         return False
     return _last_rect.collidepoint(int(x), int(y))
+
+
+def board_button_hit(x: int, y: int) -> str | None:
+    """Ident to open the arrivals board for, when the pill was tapped."""
+    if _airport is None or _board_button_rect is None:
+        return None
+    if not _board_button_rect.collidepoint(int(x), int(y)):
+        return None
+    return str(_airport.get("ident") or "").upper() or None
 
 
 def tick() -> bool:
@@ -212,23 +228,56 @@ def draw_tile(surface: pygame.Surface) -> pygame.Rect | None:
     return draw(surface)
 
 
+# Ink for the light HUD. The dark-tile colours are a bright amber ident and a
+# pale blue-grey label, and both wash out on the white pill — TAG_TYPE lands
+# near 1.7:1 against white and MUTED near 1.5:1.
+_ACCENT_ON_LIGHT = (150, 105, 0)
+_MUTED_ON_LIGHT = (92, 99, 108)
+
+
+# Minimum opacity for the white tile. Dark text on a translucent white pill
+# over the moving map is far harder to read than light text on a translucent
+# dark one, so the light tile stays more solid than the HUD setting alone.
+_LIGHT_TILE_MIN_ALPHA = 242
+
+
+def _tile_fill(fill_rgba: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """Pill fill, floored to stay readable in the light HUD style."""
+    from display.round_touch import settings
+
+    if settings.radar_hud_dark():
+        return fill_rgba
+    r, g, b, a = fill_rgba
+    return (r, g, b, max(a, _LIGHT_TILE_MIN_ALPHA))
+
+
+def _tile_ink() -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    """(accent, muted) for the current HUD style."""
+    from display.round_touch import settings
+
+    if settings.radar_hud_dark():
+        return theme.TAG_TYPE, theme.MUTED
+    return _ACCENT_ON_LIGHT, _MUTED_ON_LIGHT
+
+
 def draw(surface: pygame.Surface) -> pygame.Rect | None:
     """Draw the tile; returns its rect or None when closed."""
-    global _last_rect
+    global _last_rect, _board_button_rect
     if _airport is None:
         return None
     from display.round_touch import radar_hud
     from utilities import metar as metar_mod
 
     glyph_rgb, fill_rgba = radar_hud._hud_chrome()
-    accent_rgb = theme.TAG_TYPE
+    accent_rgb, muted_rgb = _tile_ink()
+    fill_rgba = _tile_fill(fill_rgba)
     ident_font = _load(theme.s(15), bold=True)
     name_font = _load(max(8, theme.s(9)))
     label_font = _load(max(8, theme.s(9)), bold=True)
     value_font = _load(max(8, theme.s(10)))
 
     ident = str(_airport.get("ident") or "?")
-    name = str(_airport.get("name") or _airport.get("facility") or "").strip()
+    name = str(_airport.get("facility") or _airport.get("name") or "").strip()
     m = _metar
 
     rows: list[tuple[str, str]] = []
@@ -254,7 +303,7 @@ def draw(surface: pygame.Surface) -> pygame.Rect | None:
     row_h = value_font.get_height() + gap
     width = max(
         theme.s(120),
-        ident_font.size(ident)[0] + theme.s(60),
+        ident_font.size(ident)[0] + theme.s(84),
         name_font.size(name[:34])[0] + pad * 2,
         max((label_w + value_font.size(v)[0] for _, v in rows), default=0) + pad * 2,
     )
@@ -278,6 +327,28 @@ def draw(surface: pygame.Surface) -> pygame.Rect | None:
     y = pad
     ident_img = ident_font.render(ident, True, accent_rgb)
     panel.blit(ident_img, (pad, y))
+    # Sectional chart symbol just right of the identifier.
+    try:
+        from display.round_touch.airport_overlay import (
+            chart_icon_flags,
+            draw_chart_icon,
+        )
+
+        towered, fuel, beacon = chart_icon_flags(ident)
+        icon_r = max(4, ident_img.get_height() // 4)
+        draw_chart_icon(
+            panel,
+            (
+                pad + ident_img.get_width() + theme.s(8) + icon_r,
+                y + ident_img.get_height() // 2,
+            ),
+            icon_r,
+            towered=towered,
+            fuel=fuel,
+            beacon=beacon,
+        )
+    except Exception:
+        pass
     # Flight-category badge, AeroWatch style.
     cat = (m or {}).get("flt_cat") if m else None
     if cat:
@@ -296,11 +367,43 @@ def draw(surface: pygame.Surface) -> pygame.Rect | None:
         y += name_img.get_height()
     y += theme.s(4)
     for lbl, value in rows:
-        panel.blit(label_font.render(lbl, True, theme.MUTED), (pad, y))
+        panel.blit(label_font.render(lbl, True, muted_rgb), (pad, y))
         panel.blit(value_font.render(value, True, glyph_rgb), (pad + label_w, y))
         y += row_h
     if footer:
-        panel.blit(name_font.render(footer, True, theme.MUTED), (pad, y + gap))
+        panel.blit(name_font.render(footer, True, muted_rgb), (pad, y + gap))
+
+    # Pill through to the arrivals / departures board for this field.
+    # Hidden when the board screen is switched off in Layers: the pill would
+    # open a screen the user cannot otherwise reach.
+    from display.round_touch import flip_tiles
+    from display.round_touch import settings as settings_mod
+
+    show_board = settings_mod.show_flip_board()
+    btn_h = max(10, theme.s(16))
+    btn_w = max(18, theme.s(30))
+    btn_x = width - pad - btn_w
+    btn_y = height - pad - btn_h + max(1, theme.s(2))
+    # Composite the pill on its own surface and blit it. Drawing a
+    # part-transparent colour straight onto the SRCALPHA panel replaces the
+    # pixels instead of blending, which punched a translucent hole through
+    # the tile and showed the map underneath.
+    _panel_button = None
+    if show_board:
+        pill = pygame.Surface((btn_w, btn_h), pygame.SRCALPHA)
+        pygame.draw.rect(
+            pill, (*accent_rgb, 38), pill.get_rect(), border_radius=btn_h // 2
+        )
+        pygame.draw.rect(
+            pill, (*accent_rgb, 190), pill.get_rect(),
+            width=max(1, theme.s(1)), border_radius=btn_h // 2,
+        )
+        flip_tiles.draw_direction_icon(
+            pill, btn_w // 2, btn_h // 2, int(btn_h * 0.72), accent_rgb,
+            departing=False,
+        )
+        panel.blit(pill, (btn_x, btn_y))
+        _panel_button = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
 
     anchor_xy = None
     try:
@@ -316,6 +419,14 @@ def draw(surface: pygame.Surface) -> pygame.Rect | None:
     rect = place_rect((width, height), (int(anchor_xy[0]), int(anchor_xy[1])))
     surface.blit(panel, rect)
     _last_rect = pygame.Rect(rect)
+    if _panel_button is None:
+        # No pill drawn, so leave no target behind for a finger to find.
+        _board_button_rect = None
+    else:
+        _board_button_rect = pygame.Rect(
+            rect.x + _panel_button.x, rect.y + _panel_button.y,
+            _panel_button.width, _panel_button.height,
+        )
     return rect
 
 

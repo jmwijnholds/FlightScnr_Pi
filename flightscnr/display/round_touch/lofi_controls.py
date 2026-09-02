@@ -29,16 +29,19 @@ _next_rect = pygame.Rect(0, 0, 0, 0)
 _prev_c: tuple[int, int] = (0, 0)
 _next_c: tuple[int, int] = (0, 0)
 _title_char_centers: list[tuple[int, int]] = []
+_pill_rect = pygame.Rect(0, 0, 0, 0)
 
 
 def _reset_for_tests() -> None:
     global _prev_rect, _next_rect, _prev_c, _next_c, _title_char_centers, _char_cache
+    global _pill_rect
     _prev_rect = pygame.Rect(0, 0, 0, 0)
     _next_rect = pygame.Rect(0, 0, 0, 0)
     _prev_c = (0, 0)
     _next_c = (0, 0)
     _title_char_centers = []
     _char_cache = None
+    _pill_rect = pygame.Rect(0, 0, 0, 0)
 
 
 def visible() -> bool:
@@ -57,6 +60,22 @@ def _mid_angle() -> float:
     if settings.radar_hud_enabled() and settings.radar_hud_position() == "bottom":
         return -math.pi / 2
     return math.pi / 2
+
+
+def hit_title(x: int, y: int) -> bool:
+    """True when a tap lands on the pill but not on a skip button.
+
+    The title is the only part of the pill that did nothing when tapped.
+    """
+    if not visible() or _pill_rect.width <= 0:
+        return False
+    if not _pill_rect.collidepoint(int(x), int(y)):
+        return False
+    if _prev_rect.width > 0 and _prev_rect.collidepoint(int(x), int(y)):
+        return False
+    if _next_rect.width > 0 and _next_rect.collidepoint(int(x), int(y)):
+        return False
+    return True
 
 
 def hit_button(x: int, y: int) -> str | None:
@@ -145,10 +164,12 @@ def draw(surface: pygame.Surface, now: float | None = None) -> pygame.Rect | Non
     titles marquee through the window (or truncate when scroll is off).
     """
     global _prev_rect, _next_rect, _prev_c, _next_c, _title_char_centers
+    global _pill_rect
     if not visible():
         _prev_rect = pygame.Rect(0, 0, 0, 0)
         _next_rect = pygame.Rect(0, 0, 0, 0)
         _title_char_centers = []
+        _pill_rect = pygame.Rect(0, 0, 0, 0)
         return None
 
     from display.round_touch import radar_hud
@@ -244,4 +265,5 @@ def draw(surface: pygame.Surface, now: float | None = None) -> pygame.Rect | Non
         int(min(xs)) - pad, int(min(ys)) - pad,
         int(max(xs) - min(xs)) + 2 * pad, int(max(ys) - min(ys)) + 2 * pad,
     )
+    _pill_rect = bounds
     return bounds

@@ -376,6 +376,16 @@
             <p class="hint">OurAirports tags most dirt strips and private fields as small airports. "Paved only" keeps small fields with at least one paved runway.</p>
             <p class="hint">Airport pin icons (airport.png) for large, medium, and small airports in range. Heliports and closed fields are skipped.</p>
             <div class="chk">
+                <label for="show_flip_board">Arrival / departure board</label>
+                <span class="switch"><input id="show_flip_board" type="checkbox"><span class="track"></span></span>
+            </div>
+            <p class="hint">Adds a split-flap board screen listing the last five arrivals and departures for each airport in radar range, by tail number or callsign. Movements are worked out on the device from the aircraft the radar already tracks, so no flight-schedule subscription is needed. Swipe left from the Moon screen to reach it; tap the board to flip between arrivals and departures, or tap a row for an aircraft tile.</p>
+            <div class="chk">
+                <label for="flip_board_sound">Board flip sound</label>
+                <span class="switch"><input id="flip_board_sound" type="checkbox"><span class="track"></span></span>
+            </div>
+            <p class="hint">Split-flap clatter while the board turns, synthesized on the device. Density follows how many tiles are moving. Needs a speaker, and follows the master sound switch and the off-hours schedule.</p>
+            <div class="chk">
                 <label for="show_ground_vehicles">Show ground vehicles</label>
                 <span class="switch"><input id="show_ground_vehicles" type="checkbox"><span class="track"></span></span>
             </div>
@@ -1681,6 +1691,8 @@ async function loadAll() {
         if ($("show_airport_icons")) $("show_airport_icons").checked = !!r.show_airport_icons;
         if ($("airport_icon_style")) $("airport_icon_style").value = r.airport_icon_style || "classic";
         if ($("airport_min_size")) $("airport_min_size").value = r.airport_min_size || "small";
+        if ($("show_flip_board")) $("show_flip_board").checked = !!r.show_flip_board;
+        if ($("flip_board_sound")) $("flip_board_sound").checked = !!r.flip_board_sound;
         if ($("show_ground_vehicles")) $("show_ground_vehicles").checked = r.show_ground_vehicles !== false;
         $("traffic_mode").value = r.traffic_mode || (r.ais_enabled ? "both" : "aircraft");
         if ($("vessel_min_speed")) $("vessel_min_speed").value = String(r.vessel_min_speed_kt ?? 0);
@@ -2114,6 +2126,8 @@ async function saveRadar() {
                 show_airport_icons: $("show_airport_icons") ? $("show_airport_icons").checked : false,
                 airport_icon_style: $("airport_icon_style") ? $("airport_icon_style").value : "classic",
                 airport_min_size: $("airport_min_size") ? $("airport_min_size").value : "small",
+                show_flip_board: $("show_flip_board") ? $("show_flip_board").checked : false,
+                flip_board_sound: $("flip_board_sound") ? $("flip_board_sound").checked : true,
                 show_ground_vehicles: $("show_ground_vehicles") ? $("show_ground_vehicles").checked : true,
                 map_style: $("map_style").value,
                 vfr_map_opacity: Number($("vfr_opacity") ? $("vfr_opacity").value : 45),
@@ -2378,6 +2392,8 @@ async function saveAndReloadSettings(statusId) {
                 show_airport_icons: $("show_airport_icons") ? $("show_airport_icons").checked : false,
                 airport_icon_style: $("airport_icon_style") ? $("airport_icon_style").value : "classic",
                 airport_min_size: $("airport_min_size") ? $("airport_min_size").value : "small",
+                show_flip_board: $("show_flip_board") ? $("show_flip_board").checked : false,
+                flip_board_sound: $("flip_board_sound") ? $("flip_board_sound").checked : true,
                 show_ground_vehicles: $("show_ground_vehicles") ? $("show_ground_vehicles").checked : true,
                 map_style: $("map_style").value,
                 vfr_map_opacity: Number($("vfr_opacity") ? $("vfr_opacity").value : 45),

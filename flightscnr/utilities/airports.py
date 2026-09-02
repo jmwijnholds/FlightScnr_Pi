@@ -36,7 +36,7 @@ CSV_URL     = "https://raw.githubusercontent.com/datasets/airport-codes/master/d
 # v4: persist OurAirports ``type`` for radar major-airport filtering
 # v3: store municipality name for route labels
 # v2: confirmed coordinates field is "latitude, longitude" order
-CACHE_VERSION = 5
+CACHE_VERSION = 6   # 6: field elevation_ft, needed for height above field
 
 # Types drawn on the radar when "show airports" is on (no labels / no runways).
 # Include small public fields — many GA strips are tagged small_airport but still
@@ -91,6 +91,13 @@ def _record_from_row(row: dict) -> dict | None:
     atype = (row.get("type") or "").strip().lower()
     if atype:
         rec["type"] = atype
+    # Field elevation, when the source row has it. Used by the arrival /
+    # departure board to turn altitudes into height above the field. Absent
+    # from caches built before this was parsed — callers treat that as 0.
+    try:
+        rec["elevation_ft"] = int(float(row["elevation_ft"]))
+    except (KeyError, TypeError, ValueError):
+        pass
     return rec
 
 
@@ -249,17 +256,18 @@ def iter_airports_near(
         if dist > radius:
             continue
         seen.add(ident)
-        out.append(
-            {
-                "ident": ident,
-                "lat": alat,
-                "lon": alon,
-                "type": atype,
-                "name": (rec.get("name") or "").strip(),
-                "facility": (rec.get("facility") or "").strip(),
-                "dist_km": dist,
-            }
-        )
+        point = {
+            "ident": ident,
+            "lat": alat,
+            "lon": alon,
+            "type": atype,
+            "name": (rec.get("name") or "").strip(),
+            "facility": (rec.get("facility") or "").strip(),
+            "dist_km": dist,
+        }
+        if "elevation_ft" in rec:
+            point["elevation_ft"] = rec["elevation_ft"]
+        out.append(point)
 
     out.sort(key=lambda a: a["dist_km"])
     return out

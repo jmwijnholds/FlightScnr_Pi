@@ -174,6 +174,12 @@ def _to_entry(
         "plane_latitude": lat_f,
         "plane_longitude": lon_f,
         "altitude": alt_ft,
+        # readsb reports a parked or rolling aircraft as alt_baro "ground",
+        # which _parse_alt_ft flattens to 0 ft. The arrival board needs the
+        # distinction: without it a landing at the home field is never
+        # recorded, because the aircraft keeps transmitting from the ramp so
+        # the "stopped being reported" fallback never fires either.
+        "on_ground": plane.get("alt_baro") == "ground",
         "ground_speed": gs,
         "heading": heading,
         "vertical_speed": vert,

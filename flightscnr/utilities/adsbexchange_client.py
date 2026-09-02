@@ -119,6 +119,9 @@ def _to_entry(plane: dict) -> dict | None:
         "plane_latitude": float(lat),
         "plane_longitude": float(lon),
         "altitude": alt_ft,
+        # See dump1090_client: "ground" flattens to 0 ft, and the arrival
+        # board needs to know which zeros mean wheels down.
+        "on_ground": plane.get("alt_baro") == "ground",
         "ground_speed": gs,
         "heading": heading,
         "vertical_speed": vs,

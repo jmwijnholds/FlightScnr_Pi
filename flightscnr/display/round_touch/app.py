@@ -27,11 +27,13 @@ from utilities.route_enrichment import (
     needs_route_enrichment,
 )
 from display.round_touch import (
+    aircraft_tile,
     airport_overlay,
     disclaimer_acceptance,
     draw,
     follow_overlays,
     frame_debug,
+    flap_sound,
     ghost_touch_filter,
     gesture_handler,
     hourly_chime,
@@ -50,6 +52,7 @@ from display.round_touch import (
     theme,
     touch_debug,
     lofi_controls,
+    lofi_tile,
     radial_menu,
     video,
     wildfire_overlay,
@@ -63,6 +66,7 @@ from display.round_touch.screens import (
     analog_clock,
     clock,
     flieger_clock,
+    flip_board,
     details,
     disclaimer,
     fire_detail,
@@ -94,6 +98,10 @@ SCREEN_ANALOG_CLOCK = "analog_clock"
 SCREEN_ANALOG_NIGHT = "analog_clock_night"
 SCREEN_FLIEGER_CLOCK = "flieger_clock"
 SCREEN_MOON = "moon"
+SCREEN_FLIP_BOARD = "flip_board"
+# Long enough to read a board and page between fields before it hands
+# the dial back to radar.
+FLIP_BOARD_TIMEOUT_S = 60.0
 SCREEN_FORECAST = "forecast"
 SCREEN_TRACKED = "tracked"
 SCREEN_LIVE = "live_tracking"
@@ -202,6 +210,8 @@ class RoundTouchDisplay:
         self._last_wifi_link_poll = 0.0
         self._wifi_ap_starting = False
         self._last_clock_minute = -1
+        self._flip_board_sampled_at = 0.0
+        self._flip_board_saved_at = 0.0
         self._last_clock_draw = 0.0
         self._last_radar_draw = 0
         self._last_static_draw = 0
@@ -781,6 +791,7 @@ class RoundTouchDisplay:
             if mode in ("marine", "both") and self._ais_vessels:
                 flights.extend(self._ais_vessels)
             self.flights = flights
+            self._update_flip_board(flights)
             if self.screen == SCREEN_FLIGHT:
                 self._sync_selected_flight_index()
         except Exception:
@@ -1024,6 +1035,9 @@ class RoundTouchDisplay:
             flieger_clock.draw_flieger_clock(self.surface)
         elif self.screen == SCREEN_MOON:
             moon.draw_moon(self.surface)
+        elif self.screen == SCREEN_FLIP_BOARD:
+            flip_board.draw_flip_board(self.surface)
+            aircraft_tile.draw(self.surface, self.flights)
         elif self.screen == SCREEN_FORECAST:
             forecast.draw_forecast(self.surface)
         elif self.screen == SCREEN_TRACKED:
@@ -1266,6 +1280,11 @@ class RoundTouchDisplay:
             return None
         if self.screen in (SCREEN_RADAR, SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FORECAST):
             return None
+        if self.screen == SCREEN_FLIP_BOARD:
+            # Pinned means it stays until the user leaves.
+            if flip_board.is_pinned():
+                return None
+            return float(FLIP_BOARD_TIMEOUT_S)
         if self.screen in (SCREEN_TRACKED, SCREEN_LIVE) and tracked.is_pinned():
             return None
         if self.screen == SCREEN_FLIGHT:
@@ -1428,6 +1447,42 @@ class RoundTouchDisplay:
             frame_debug.stage(name, now - t0)
         return now
 
+    # Movement detection needs a steady cadence, not every draw. adsb.fi
+    # refreshes about every 5s, so sampling at 4s never misses a snapshot.
+    _FLIP_BOARD_SAMPLE_S = 4.0
+
+    def _update_flip_board(self, flights: list) -> None:
+        """Fold the current radar snapshot into the arrival / departure board.
+
+        Runs whether or not the board screen is switched on. The Layers
+        toggle gates reaching the screen; gating collection too meant
+        switching the board on gave you an empty one. Measured on the device
+        at 0.47 ms per sample for 25 aircraft over 6 airports, and 4.3 ms for
+        120 over 30, once every four seconds.
+        """
+        now = time.time()
+        if now - self._flip_board_sampled_at < self._FLIP_BOARD_SAMPLE_S:
+            return
+        self._flip_board_sampled_at = now
+        try:
+            from display.round_touch import airport_overlay
+            from utilities import flip_board as flip_board_data
+
+            airports = airport_overlay.in_view_airports()
+            if not airports:
+                return
+            events = flip_board_data.tracker().observe(flights, airports, now)
+            if events and self.screen == SCREEN_FLIP_BOARD:
+                self._safe_draw()
+            # Write only when something actually landed or left. A timer would
+            # rewrite an unchanged file every couple of minutes, which is
+            # hundreds of pointless SD writes a day on a quiet field.
+            if events:
+                self._flip_board_saved_at = now
+                flip_board_data.save()
+        except Exception:
+            logger.debug("Flip board update failed", exc_info=True)
+
     def _safe_draw(self):
         # Always track frame gaps for /tmp hitch log; full stage debug is optional.
         started = time.perf_counter()
@@ -1582,7 +1637,7 @@ class RoundTouchDisplay:
         return (
             self._auto_idle_clock
             and settings.auto_idle_clock_enabled()
-            and self.screen in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FORECAST)
+            and self.screen in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FLIP_BOARD, SCREEN_FORECAST)
             and radar.visible_in_range_count(self.flights) == 0
         )
 
@@ -1662,11 +1717,15 @@ class RoundTouchDisplay:
             logger.debug("Alert reflash on radar entry failed", exc_info=True)
 
     def _open_screen(self, screen: str):
-        if screen in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FORECAST):
+        if screen in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FLIP_BOARD, SCREEN_FORECAST):
             self._last_clock_minute = -1
             self._last_clock_draw = 0.0
         previous = self.screen
         if screen != self.screen:
+            if self.screen == SCREEN_FLIP_BOARD:
+                # The tile belongs to the board; leaving closes it, so it does
+                # not reappear over a board the user comes back to later.
+                aircraft_tile.dismiss()
             if self.screen in (SCREEN_TRACKED, SCREEN_LIVE):
                 tracked.reset_marquee()
             self._scroll.reset()
@@ -1793,6 +1852,10 @@ class RoundTouchDisplay:
 
             settings.toggle_show_airport_icons()
             airport_overlay.invalidate()
+        elif action == "flip_board":
+            settings.toggle_show_flip_board()
+        elif action == "flip_board_sound":
+            settings.toggle_flip_board_sound_enabled()
         elif action == "ground_vehicles":
             settings.toggle_show_ground_vehicles()
         elif action == "map_style":
@@ -3179,7 +3242,7 @@ class RoundTouchDisplay:
             off_hours.in_off_hours()
             and off_hours.prefs().get("mode") == "clock"
             and self.screen
-            not in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FORECAST)
+            not in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FLIP_BOARD, SCREEN_FORECAST)
         ):
             pct = day_pct
         backlight.apply_percent(pct)
@@ -4033,7 +4096,8 @@ class RoundTouchDisplay:
         """Screen-aware breadcrumb hit: curved band on curved-chrome screens."""
         if self.screen in (
             SCREEN_SETTINGS, SCREEN_DETAILS, SCREEN_FLIGHT, SCREEN_FIRE, SCREEN_QUAKE,
-            SCREEN_CLOCK, SCREEN_FORECAST, SCREEN_UPDATE_NOTES, SCREEN_TRACKED,
+            SCREEN_CLOCK, SCREEN_FLIP_BOARD, SCREEN_FORECAST, SCREEN_UPDATE_NOTES,
+            SCREEN_TRACKED,
         ):
             return nav.tap_breadcrumb_curved(x, y)
         return nav.tap_breadcrumb(x, y)
@@ -4202,7 +4266,7 @@ class RoundTouchDisplay:
 
         if swipe != input_handler.SWIPE_NONE and self.screen not in (
             SCREEN_RADAR, SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT,
-            SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FORECAST,
+            SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FLIP_BOARD, SCREEN_FORECAST,
         ):
             self._note_activity()
 
@@ -4297,6 +4361,23 @@ class RoundTouchDisplay:
             self._open_screen(SCREEN_FLIEGER_CLOCK)
             self._safe_draw()
         elif swipe == input_handler.SWIPE_LEFT and self.screen == SCREEN_FLIEGER_CLOCK:
+            self._open_screen(SCREEN_MOON)
+            self._safe_draw()
+        elif (
+            swipe == input_handler.SWIPE_LEFT
+            and self.screen == SCREEN_MOON
+            and settings.show_flip_board()
+        ):
+            # Every row turns over on arrival, the way a real board catches up.
+            flip_board.restart_animation()
+            # A deliberate swipe ends the idle-clock state, so nothing pulls
+            # the user back to radar behind their back.
+            self._auto_idle_clock = False
+            self._open_screen(SCREEN_FLIP_BOARD)
+            self._note_activity()
+            self._safe_draw()
+        elif swipe == input_handler.SWIPE_RIGHT and self.screen == SCREEN_FLIP_BOARD:
+            flip_board.clear_pinned()
             self._open_screen(SCREEN_MOON)
             self._safe_draw()
         elif swipe == input_handler.SWIPE_RIGHT and self.screen == SCREEN_MOON:
@@ -4468,10 +4549,31 @@ class RoundTouchDisplay:
                         ) is not None:
                             self._apply_zoom_button(zoom_action)
                         elif (
+                            lofi_btn := (
+                                lofi_tile.hit_button(tap[0], tap[1])
+                                if lofi_tile.is_open()
+                                else None
+                            )
+                        ) is not None:
+                            lofi_tile.apply(lofi_btn)
+                            self._safe_draw()
+                        elif lofi_tile.is_open() and lofi_tile.hit(tap[0], tap[1]):
+                            # Tap on the panel chrome, not a button: dismiss.
+                            lofi_tile.dismiss()
+                            self._safe_draw()
+                        elif (
                             lofi_action := lofi_controls.hit_button(tap[0], tap[1])
                         ) is not None:
+                            if lofi_tile.is_open():
+                                lofi_tile.dismiss()
                             self._apply_lofi_skip(lofi_action)
+                        elif lofi_controls.hit_title(tap[0], tap[1]):
+                            lofi_tile.open_tile()
+                            self._safe_draw()
                         elif self._open_flight_or_fire_at(tap[0], tap[1]):
+                            self._safe_draw()
+                        elif lofi_tile.is_open():
+                            lofi_tile.dismiss()
                             self._safe_draw()
         elif tap and self.screen == SCREEN_FLIGHT:
             # Any tap (content or footer) restarts the idle countdown.
@@ -4623,6 +4725,50 @@ class RoundTouchDisplay:
                 settings.toggle_clock_format()
                 self._note_activity()
                 self._safe_draw()
+        elif tap and self.screen == SCREEN_FLIP_BOARD:
+            if aircraft_tile.is_open():
+                # While the tile is up it owns the screen: any tap closes it
+                # rather than paging the board underneath.
+                aircraft_tile.dismiss()
+                self._note_activity()
+                self._safe_draw()
+                return
+            action = flip_board.tap_footer_action(tap[0], tap[1])
+            if action == "radar":
+                flip_board.clear_pinned()
+                self._return_to_radar()
+                self._safe_draw()
+            elif action == "pin":
+                flip_board.toggle_pinned()
+                self._note_activity()
+                self._safe_draw()
+            elif action == "prev":
+                flip_board.step_airport(-1)
+                self._note_activity()
+                self._safe_draw()
+            elif action == "next":
+                flip_board.step_airport(1)
+                self._note_activity()
+                self._safe_draw()
+            else:
+                side = flip_board.tap_direction(tap[0], tap[1])
+                if side is not None:
+                    # Tapping a word picks that side outright rather than
+                    # toggling: both are on screen, so a toggle would be a
+                    # coin flip from the user's point of view.
+                    flip_board.set_direction(side)
+                    self._note_activity()
+                    self._safe_draw()
+                    return
+                row = flip_board.tap_row(tap[0], tap[1])
+                if row is not None:
+                    aircraft_tile.open_tile(row)
+                    self._note_activity()
+                    self._safe_draw()
+                elif flip_board.tap_board(tap[0], tap[1]):
+                    flip_board.toggle_direction()
+                    self._note_activity()
+                    self._safe_draw()
         elif tap and self.screen == SCREEN_FORECAST:
             action = forecast.tap_footer_action(tap[0], tap[1])
             if action == "radar":
@@ -4737,7 +4883,7 @@ class RoundTouchDisplay:
         # In off-hours clock mode, keep clock/forecast screens stable instead of
         # timing out back to radar (prevents clock<->radar flicker).
         if (
-            self.screen in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FORECAST)
+            self.screen in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FLIP_BOARD, SCREEN_FORECAST)
             and off_hours.in_off_hours()
             and off_hours.force_clock_enabled()
         ):
@@ -4748,11 +4894,15 @@ class RoundTouchDisplay:
             return
         if self.screen in (SCREEN_TRACKED, SCREEN_LIVE) and tracked.is_pinned():
             return
+        # The board shares the clock-family fallback below, which would give a
+        # pinned board clock_timeout_s() instead of no timeout at all.
+        if self.screen == SCREEN_FLIP_BOARD and flip_board.is_pinned():
+            return
 
         timeout_s = self._timeout_duration_s()
         if timeout_s is None:
             # Clock/forecast use their own duration but share activity timestamp.
-            if self.screen in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FORECAST):
+            if self.screen in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FLIP_BOARD, SCREEN_FORECAST):
                 timeout_s = float(settings.clock_timeout_s())
             else:
                 return
@@ -4765,9 +4915,20 @@ class RoundTouchDisplay:
             self._safe_draw()
 
     def _tick_clock(self):
-        if self.screen not in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FORECAST):
+        if self.screen not in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FLIP_BOARD, SCREEN_FORECAST):
             return
         now = time.time()
+        if self.screen == SCREEN_FLIP_BOARD and aircraft_tile.tick():
+            self._safe_draw()
+            return
+        if self.screen == SCREEN_FLIP_BOARD and flip_board.is_animating(now):
+            # Split-flap needs real frames; the 2s clock cadence would show
+            # two stills instead of tiles turning.
+            flap_sound.tick(active_tiles=flip_board.turning_tile_count(now), now=now)
+            if (now - self._last_clock_draw) >= (theme.SWEEP_FRAME_MS / 1000.0):
+                self._last_clock_draw = now
+                self._safe_draw()
+            return
         # Analog needs ~30fps for sweeping hands + drum snap-scroll.
         if self.screen in (SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK):
             if (now - self._last_clock_draw) >= (theme.SWEEP_FRAME_MS / 1000.0):
@@ -4797,7 +4958,7 @@ class RoundTouchDisplay:
             weather_data.request_fetch_now()
             radar_hud.rebuild_overlay()
             self._weather_redraw_pending = True
-            if self.screen in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FORECAST):
+            if self.screen in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FLIP_BOARD, SCREEN_FORECAST):
                 self._safe_draw()
             logger.info("Manual weather refresh completed")
         except Exception:
@@ -4835,6 +4996,10 @@ class RoundTouchDisplay:
                 self._radar_visible_since = time.time()
         elif (
             self._auto_idle_clock
+            # The board is somewhere the user navigated to on purpose, not an
+            # idle screen to be reclaimed the moment an aircraft appears.
+            # Returning from it looked like the board going back to radar too
+            # quickly.
             and self.screen in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FORECAST)
             and radar.visible_in_range_count(self.flights) > 0
         ):
@@ -5200,6 +5365,20 @@ class RoundTouchDisplay:
         """
         from display.round_touch import airport_tile
 
+        board_ident = airport_tile.board_button_hit(x, y)
+        if board_ident:
+            # The pill opens that field's arrivals board. Checked before the
+            # dismiss below, which owns the rest of the tile.
+            airport_tile.dismiss()
+            radar.invalidate_frame_layer()
+            flip_board.select_airport(board_ident)
+            flip_board.restart_animation()
+            self._auto_idle_clock = False
+            self._open_screen(SCREEN_FLIP_BOARD)
+            self._note_activity()
+            self._safe_draw()
+            return True
+
         if airport_tile.hit(x, y):
             # Tap on the METAR tile itself dismisses it.
             airport_tile.dismiss()
@@ -5269,6 +5448,7 @@ class RoundTouchDisplay:
         if airport is not None:
             from display.round_touch import airport_tile
 
+            lofi_tile.dismiss()
             airport_tile.open_tile(airport)
             radar.invalidate_frame_layer()
             self._note_activity()
@@ -5294,6 +5474,7 @@ class RoundTouchDisplay:
         try:
             from display.round_touch import airport_tile
 
+            lofi_tile.dismiss()
             airport_tile.open_tile(airport)
         except ImportError:
             # METAR tile not merged here — fall back to the callout toast.
@@ -5802,7 +5983,7 @@ class RoundTouchDisplay:
                             )
                             self._prewarm_thread.start()
                             self._loop_stage("loop_prewarm_spawn", _lt)
-                elif self.screen in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FORECAST):
+                elif self.screen in (SCREEN_CLOCK, SCREEN_ANALOG_CLOCK, SCREEN_ANALOG_NIGHT, SCREEN_FLIEGER_CLOCK, SCREEN_MOON, SCREEN_FLIP_BOARD, SCREEN_FORECAST):
                     self._tick_clock()
                 elif self.screen in (SCREEN_TRACKED, SCREEN_LIVE):
                     tracked.tick_marquee()
@@ -5883,6 +6064,8 @@ class RoundTouchDisplay:
 
                         atc_audio.enforce_quiet_hours()
                         lofi_audio.app_tick()
+                        if lofi_tile.tick():
+                            self._safe_draw()
                     except Exception:
                         logger.debug("Audio tick failed", exc_info=True)
                     hourly_chime.tick()

@@ -114,6 +114,9 @@ def _to_entry(plane: dict, min_altitude: int) -> dict | None:
     return {
         "callsign": callsign,
         "icao_hex": icao_hex,
+        # adsb.fi serves the readsb/tar1090 schema, which carries the tail
+        # number in "r". Free of charge — it rides the position response.
+        "registration": (plane.get("r") or "").strip().upper(),
         "airline": airline,
         "plane": plane_type,
         "origin": "",
@@ -121,6 +124,10 @@ def _to_entry(plane: dict, min_altitude: int) -> dict | None:
         "plane_latitude": float(lat),
         "plane_longitude": float(lon),
         "altitude": alt_ft,
+        # readsb reports a parked or rolling aircraft as alt_baro "ground",
+        # which _parse_alt_ft flattens to 0 ft. Keep the distinction: the
+        # arrival board needs to tell a touchdown from a low overflight.
+        "on_ground": plane.get("alt_baro") == "ground",
         "ground_speed": gs,
         "heading": heading,
         "vertical_speed": vert,

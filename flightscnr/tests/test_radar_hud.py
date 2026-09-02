@@ -677,7 +677,8 @@ class HudSettingsRowTests(unittest.TestCase):
         pages = (
             (info.DISPLAY_ACTIONS, info._display_row_labels()),
             (info.HUD_ACTIONS, info._hud_row_labels()),
-            (info.LAYERS_ACTIONS, info._layers_row_labels()),
+            # layers_actions() drops rows whose parent feature is off.
+            (info.layers_actions(), info._layers_row_labels()),
             (info.ATC_QUIET_ACTIONS, info._atc_quiet_row_labels()),
         )
         for actions, labels in pages:

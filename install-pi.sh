@@ -1462,7 +1462,18 @@ prepare_repo_for_pull() {
 sync_to_origin_main() {
     log_step "Syncing to origin/main"
     # 10 minutes is enough for --tags on slow Wi-Fi; a hang is worse than retry.
-    run_repo_git --timeout 30 600 fetch --tags origin
+    #
+    # --force, because a tag the device already holds under a different object
+    # makes a plain `fetch --tags` exit non-zero ("would clobber existing
+    # tag"). Under `set -e` that failed the whole update, with a message that
+    # never mentioned tags. Any device whose tag upstream later re-points was
+    # stranded on the OTA path.
+    #
+    # The fallback drops tags entirely so a tag can never block the code. The
+    # sync needs origin/main; release tags are read separately, with
+    # `ls-remote` against the remote, so nothing here depends on local tags.
+    run_repo_git --timeout 30 600 fetch --force --tags origin \
+        || run_repo_git --timeout 30 600 fetch origin
     if ! run_repo_git show-ref --verify --quiet refs/remotes/origin/main; then
         echo "origin/main not found after fetch" >&2
         return 1

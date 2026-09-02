@@ -510,6 +510,54 @@ def airports_near(
     return out
 
 
+def in_view_airports() -> list[dict[str, Any]]:
+    """Airports whose pin falls inside the visible circle, nearest first.
+
+    Reuses the overlay's own cache and projection, so this is the same set the
+    radar is drawing — no parallel query, no work on the display thread.
+
+    Unlike the draw path this ignores the Layers toggles: the arrival /
+    departure board is about which fields are in range, not about whether the
+    user chose to see pins. It still returns [] until the cache warms.
+    """
+    key = _query_key()
+    if key is None:
+        return []
+    with _lock:
+        cached = list(_airports)
+        warm = _cache_key == key
+    if not warm:
+        # Serve whatever is cached now; refresh for the current view off-thread.
+        _begin_load(key)
+    limit = theme.VISIBLE_RADIUS
+    cx, cy = theme.CENTER_X, theme.CENTER_Y
+    out: list[dict[str, Any]] = []
+    for airport in cached:
+        try:
+            pos = _screen_xy(float(airport["lat"]), float(airport["lon"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if pos is None:
+            continue
+        if math.hypot(pos[0] - cx, pos[1] - cy) <= limit:
+            out.append(airport)
+    out.sort(key=lambda a: float(a.get("dist_km") or 0.0))
+    return out
+
+
+def _begin_load(key: tuple) -> None:
+    """Kick the background query for ``key`` if it is not already running."""
+    global _load_key, _loading
+    with _lock:
+        if _loading and _load_key == key:
+            return
+        _loading = True
+        _load_key = key
+    threading.Thread(
+        target=_load_worker, args=(key,), daemon=True, name="airport-overlay"
+    ).start()
+
+
 def show_callout(airport: dict[str, Any]) -> None:
     """Show a short-lived ICAO/name toast for ``airport`` on the radar."""
     global _callout_airport, _callout_until

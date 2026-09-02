@@ -325,6 +325,8 @@ _defaults = {
     # Real-world direction at the top of the screen (0=north-up).
     "facing_deg": 0.0,
     "show_sweep": True,
+    # Split-flap clatter while the arrivals board turns.
+    "flip_board_sound": True,
     # Hockey-stick underline + diagonal from tag to blip.
     "show_tag_leaders": True,
     # Out-of-range rim targets: plane | dot (PR118). Seeded from config on first load.
@@ -3356,6 +3358,20 @@ def set_alert_sfx_volume(value: int, *, persist: bool = True) -> int:
     else:
         _disk_synced = False
     return vol
+
+
+def flip_board_sound_enabled() -> bool:
+    return bool(_state.get("flip_board_sound", True))
+
+
+def set_flip_board_sound_enabled(enabled: bool) -> None:
+    _state["flip_board_sound"] = bool(enabled)
+    _save(_state)
+
+
+def toggle_flip_board_sound_enabled() -> bool:
+    set_flip_board_sound_enabled(not flip_board_sound_enabled())
+    return flip_board_sound_enabled()
 
 
 def master_sound_enabled() -> bool:
