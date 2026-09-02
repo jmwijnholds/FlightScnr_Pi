@@ -152,14 +152,15 @@
                          "YK50","P32R","C120","SLG2","D11","E200","CP10","BDOG","EFOX","GX","R300",
                          "C42","SKRA","SKAR","BE23","P32T","AP22","P28S","P208","HR20","DR40",
                          "BREZ","BR23","C77R","BL8","BR23","M700","RELI","LGEZ","TB20","T18",
-                         "LAKR","HUSK","NG5",
+                         "LAKR","HUSK","NG5","COZY","CJ6","M5","BE24","BL17","BE19","GA8",
+                         "AP32","EAGL","SREY",
                          "RV6", "RV7", "RV8", "RV9", "RV10", "RV12", "RV14","DA50","P28A","PC12","C180","COL4","P28B",
                          "ERCO","AT5T","TBM9","PA38","P28R","S22T","K100","CH7A","TB21","CC11"],
 
     "small-prop-twin": ["PA30", "PA31", "PA34", "PA44", "PA60","BE50","C425","B350","PA27","PA23","C303",
                        "DA42", "DA62", "BE55", "BE58", "BE60", "BE76", "BE95","BE9L","E120",
                        "C310", "C320", "C340", "C401", "C402", "C411", "C414", "C421","C208",
-                       "B58T","PAY2",
+                       "B58T","PAY2","P337","C441","D328","AC50","D228",
                        "P68","BE20","MU2","BE18","TRIM","B29","P06T","PAT4","SH36","BE99","V10","S2T"],
 
     "helicopter": ["H125", "H130", "H135", "H145", "H155", "H160", "H175", "H215", "H225",
@@ -176,7 +177,7 @@
                            "MI8", "MI17", "MI24", "MI26", "MI28", "KA27", "KA32", "KA50", "KA52"],
 
     "military-fighter": ["F14", "F15", "F16", "F18", "F22", "F35", "F100", "F104", "F111", "F117",
-                        "EUFI", "RFAL", "HAWK", "TORN", "HURR", "SPIT",
+                        "EUFI", "RFAL", "HAWK", "TORN", "HURR", "SPIT","A4",
                         "SU27", "SU30", "SU35", "MIG29", "MIG31","AJET",
                         "JAS39", "DRAV", "M2K", "M346","T38","M339","KFIR","MRF1","HUNT","F18S","L39"],
 
