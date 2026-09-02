@@ -1225,6 +1225,7 @@ def _settings_snapshot(state: dict) -> tuple:
         str(state.get("airport_icon_style") or "classic"),
         str(state.get("airport_min_size") or "small"),
         state.get("show_flip_board"),
+        bool(state.get("flip_board_sound", True)),
         state.get("show_ground_vehicles"),
         state.get("vessel_min_speed_kt"),
         state.get("aircraft_min_speed_kt"),

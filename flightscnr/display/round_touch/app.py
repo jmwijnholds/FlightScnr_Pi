@@ -4910,7 +4910,11 @@ class RoundTouchDisplay:
         if self.screen == SCREEN_FLIP_BOARD and flip_board.is_animating(now):
             # Split-flap needs real frames; the 2s clock cadence would show
             # two stills instead of tiles turning.
-            flap_sound.tick(active_tiles=flip_board.turning_tile_count(now), now=now)
+            flap_sound.tick(
+                active_tiles=flip_board.turning_tile_count(now),
+                offsets=flip_board.flap_click_offsets(now),
+                now=now,
+            )
             if (now - self._last_clock_draw) >= (theme.SWEEP_FRAME_MS / 1000.0):
                 self._last_clock_draw = now
                 self._safe_draw()

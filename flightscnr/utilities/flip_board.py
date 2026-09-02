@@ -28,9 +28,10 @@ infers movements from track lifecycle plus vertical rate:
 Both rules need only lat/lon, altitude, and vertical rate, so the board works
 on the free adsb.fi feed with no API key. Nothing here does network I/O.
 
-Airport elevation is used when the airport record carries ``elevation_ft`` and
-is treated as sea level otherwise, so a high-elevation field degrades to a
-slightly generous altitude gate rather than to silence.
+Airport elevation is used when the airport record carries ``elevation_ft``.
+Caches built before that field was parsed have no value: guessing sea level
+would silently misjudge every elevated field, so those airports are skipped
+until the cache rebuilds.
 """
 
 from __future__ import annotations

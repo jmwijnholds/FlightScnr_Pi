@@ -151,6 +151,29 @@ def turning_tile_count(now: float | None = None) -> int:
     return count
 
 
+def flap_click_offsets(now: float | None = None) -> list[float]:
+    """Seconds from the first remaining flap until each unfinished tile starts.
+
+    Blank slots and tiles that have already settled are omitted, so a kept
+    airport code does not add extra clicks on a direction change.
+    """
+    now = time.time() if now is None else now
+    starts: list[float] = []
+    for row, entry in _flap_rows.items():
+        row_t0 = float(entry["started"]) + _FLAP_ROW_STAGGER_S * row
+        for col, char in enumerate(entry["text"]):
+            if not str(char).strip():
+                continue
+            begin = row_t0 + _FLAP_COL_STAGGER_S * col
+            if now >= begin + _FLAP_SETTLE_S:
+                continue
+            starts.append(begin)
+    if not starts:
+        return []
+    t0 = min(starts)
+    return [t - t0 for t in starts]
+
+
 def _flap_text(row: int, target: str, now: float) -> str:
     """The characters to show for ``target`` right now.
 

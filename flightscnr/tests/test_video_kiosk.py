@@ -37,7 +37,8 @@ class TestVideoKioskFlags(unittest.TestCase):
              mock.patch.object(video.x11_kiosk, "hide_kiosk_cursor") as hide_cursor, \
              mock.patch.object(
                  video, "_driver_candidates", return_value=["dummy"]
-             ):
+             ), \
+             mock.patch.object(video, "configure_sdl_audio", return_value="dummy"):
             video.init_display(720, 720, True)
         flags = set_mode.call_args[0][1]
         self.assertTrue(flags & pygame.FULLSCREEN)
@@ -63,7 +64,8 @@ class TestVideoKioskFlags(unittest.TestCase):
              mock.patch.object(video.x11_kiosk, "hide_kiosk_cursor") as hide_cursor, \
              mock.patch.object(
                  video, "_driver_candidates", return_value=["dummy"]
-             ):
+             ), \
+             mock.patch.object(video, "configure_sdl_audio", return_value="dummy"):
             video.init_display(720, 720, False)
         flags = set_mode.call_args[0][1]
         self.assertFalse(flags & pygame.FULLSCREEN)
@@ -241,6 +243,89 @@ class TestHideKioskCursor(unittest.TestCase):
         self.assertNotIn("timer.daemon", src)
         self.assertIn("tick_kiosk_chrome", src)
         self.assertIn("queued on the SDL thread (no Timer)", src)
+
+
+class TestSdlAudioDriver(unittest.TestCase):
+    def setUp(self):
+        self._prev = os.environ.get("SDL_AUDIODRIVER")
+
+    def tearDown(self):
+        if self._prev is None:
+            os.environ.pop("SDL_AUDIODRIVER", None)
+        else:
+            os.environ["SDL_AUDIODRIVER"] = self._prev
+
+    def test_speaker_present_selects_pulse(self):
+        import display.round_touch.video as video
+
+        os.environ["SDL_AUDIODRIVER"] = "dummy"
+        self.assertEqual(video.configure_sdl_audio(speaker=True), video.SDL_PULSE_DRIVER)
+        self.assertEqual(os.environ.get("SDL_AUDIODRIVER"), "pulse")
+
+    def test_speaker_present_overwrites_alsa(self):
+        """Pi default ALSA is HDMI; ATC is on the Pulse/USB sink."""
+        import display.round_touch.video as video
+
+        os.environ["SDL_AUDIODRIVER"] = "alsa"
+        video.configure_sdl_audio(speaker=True)
+        self.assertEqual(os.environ.get("SDL_AUDIODRIVER"), "pulse")
+
+    def test_no_speaker_selects_dummy(self):
+        import display.round_touch.video as video
+
+        os.environ.pop("SDL_AUDIODRIVER", None)
+        self.assertEqual(video.configure_sdl_audio(speaker=False), "dummy")
+        self.assertEqual(os.environ.get("SDL_AUDIODRIVER"), "dummy")
+
+    def test_pre_init_uses_the_shared_mixer_constants(self):
+        import display.round_touch.video as video
+
+        with mock.patch.object(video.pygame.mixer, "pre_init") as pre_init:
+            video.pre_init_mixer()
+        pre_init.assert_called_once_with(
+            frequency=video.MIXER_FREQUENCY,
+            size=video.MIXER_SIZE,
+            channels=video.MIXER_CHANNELS,
+            buffer=video.MIXER_BUFFER,
+        )
+
+    def test_init_display_pre_inits_mixer_when_pulse(self):
+        import display.round_touch.video as video
+
+        with mock.patch.object(video.pygame, "get_init", return_value=False), \
+             mock.patch.object(video.pygame, "init"), \
+             mock.patch.object(video.pygame.display, "quit"), \
+             mock.patch.object(video.pygame, "quit"), \
+             mock.patch.object(video.pygame.display, "set_caption"), \
+             mock.patch.object(
+                 video.pygame.display, "set_mode", return_value=mock.Mock()
+             ), \
+             mock.patch.object(video.x11_kiosk, "schedule_undecorate_retries"), \
+             mock.patch.object(video, "_driver_candidates", return_value=["dummy"]), \
+             mock.patch.object(
+                 video, "configure_sdl_audio", return_value=video.SDL_PULSE_DRIVER
+             ), \
+             mock.patch.object(video, "pre_init_mixer") as pre_init:
+            video.init_display(720, 720, False)
+        pre_init.assert_called_once()
+
+    def test_init_display_skips_mixer_pre_init_when_dummy(self):
+        import display.round_touch.video as video
+
+        with mock.patch.object(video.pygame, "get_init", return_value=False), \
+             mock.patch.object(video.pygame, "init"), \
+             mock.patch.object(video.pygame.display, "quit"), \
+             mock.patch.object(video.pygame, "quit"), \
+             mock.patch.object(video.pygame.display, "set_caption"), \
+             mock.patch.object(
+                 video.pygame.display, "set_mode", return_value=mock.Mock()
+             ), \
+             mock.patch.object(video.x11_kiosk, "schedule_undecorate_retries"), \
+             mock.patch.object(video, "_driver_candidates", return_value=["dummy"]), \
+             mock.patch.object(video, "configure_sdl_audio", return_value="dummy"), \
+             mock.patch.object(video, "pre_init_mixer") as pre_init:
+            video.init_display(720, 720, False)
+        pre_init.assert_not_called()
 
 
 if __name__ == "__main__":

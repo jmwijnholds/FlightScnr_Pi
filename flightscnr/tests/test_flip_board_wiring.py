@@ -56,6 +56,16 @@ class TestSetting(unittest.TestCase):
         state["show_flip_board"] = True
         self.assertNotEqual(off, settings._settings_snapshot(state))
 
+    def test_sound_setting_is_in_the_portal_sync_snapshot(self):
+        """Board flip sound is portal-synced; omit it and a save reverts."""
+        from display.round_touch import settings
+
+        state = dict(settings._defaults)
+        state["flip_board_sound"] = False
+        off = settings._settings_snapshot(state)
+        state["flip_board_sound"] = True
+        self.assertNotEqual(off, settings._settings_snapshot(state))
+
 
 class TestDeviceSettingsRow(unittest.TestCase):
     def test_layers_actions_and_labels_stay_aligned(self):
