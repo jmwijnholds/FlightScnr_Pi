@@ -47,9 +47,14 @@ class ScreenTestCase(unittest.TestCase):
         pygame.display.quit()
 
     def setUp(self):
+        from unittest.mock import patch
+
         from display.round_touch.screens import flip_board as screen
 
         screen._reset_for_tests()
+        play = patch("display.round_touch.flap_sound.enabled", return_value=False)
+        play.start()
+        self.addCleanup(play.stop)
 
 
 class TestGeometry(ScreenTestCase):
@@ -75,17 +80,29 @@ class TestGeometry(ScreenTestCase):
                 )
 
     def test_heading_stays_inside_the_circle(self):
-        from display.round_touch import theme
+        from display.round_touch import flip_tiles, theme
         from display.round_touch.screens import flip_board as screen
 
         top = screen._heading_top()
         self.assertGreater(top, theme.CENTER_Y - theme.VISIBLE_RADIUS)
+        scale = screen.ident_scale()
+        half = flip_tiles.row_width(4, scale) / 2.0
+        height = flip_tiles.tile_height(scale)
+        for corner_y in (top, top + height):
+            radius = math.hypot(half, abs(corner_y - theme.CENTER_Y))
+            self.assertLessEqual(radius, theme.VISIBLE_RADIUS)
 
-    def test_there_are_five_rows(self):
+    def test_there_are_seven_rows(self):
         from display.round_touch.screens import flip_board as screen
 
-        self.assertEqual(len(screen.row_positions()), 5)
-        self.assertEqual(screen.ROWS, 5)
+        self.assertEqual(len(screen.row_positions()), 7)
+        self.assertEqual(screen.ROWS, 7)
+
+    def test_the_board_sits_higher_than_the_old_content_band(self):
+        from display.round_touch import nav
+        from display.round_touch.screens import flip_board as screen
+
+        self.assertLess(screen._heading_top(), nav.content_top_y())
 
     def test_rows_do_not_overlap(self):
         from display.round_touch import flip_tiles
@@ -98,22 +115,12 @@ class TestGeometry(ScreenTestCase):
         for earlier, later in zip(positions, positions[1:]):
             self.assertGreaterEqual(later, earlier + height)
 
-    def test_page_dots_sit_below_the_board_not_on_the_rim(self):
-        """Curved rim dots would land on top of the breadcrumb."""
-        from display.round_touch import flip_tiles, nav, theme
+    def test_the_last_row_clears_the_footer(self):
+        from display.round_touch import flip_tiles, nav
         from display.round_touch.screens import flip_board as screen
 
-        dots = screen.dots_y()
-        last_row_bottom = screen.row_positions()[-1] + flip_tiles.tile_height()
-        self.assertGreater(dots, last_row_bottom)
-        self.assertGreater(dots, nav.content_top_y() + theme.s(60))
-        self.assertTrue(theme.in_visible_circle(theme.CENTER_X, dots))
-
-    def test_page_dots_clear_the_footer(self):
-        from display.round_touch import nav
-        from display.round_touch.screens import flip_board as screen
-
-        self.assertLess(screen.dots_y(), nav.content_bottom_y())
+        last = screen.row_positions()[-1] + flip_tiles.tile_height(screen.ROW_TILE_SCALE)
+        self.assertLess(last, nav.content_bottom_y())
 
     def test_row_width_covers_id_and_time_tiles(self):
         from display.round_touch import flip_tiles
@@ -319,6 +326,57 @@ class TestDrawing(ScreenTestCase):
         self._stub_airports([])
         # Centre of the dial is never a footer button.
         self.assertIsNone(screen.tap_footer_action(1, 1))
+
+    def test_footer_includes_the_id_button(self):
+        from display.round_touch.screens import flip_board as screen
+
+        self.assertIn("board_id", screen.FOOTER_BUTTONS)
+        self.assertEqual(screen.FOOTER_BUTTONS[-1], "board_id")
+
+    def test_id_picker_offers_the_three_identities(self):
+        from display.round_touch.screens import flip_board as screen
+
+        screen.open_id_picker()
+        screen._draw_id_picker(self._surface())
+        actions = {action for action, _rect in screen._id_picker_hits}
+        self.assertEqual(actions, {"close", "tail", "flight_number", "callsign"})
+
+    def test_id_picker_hit_selects_callsign(self):
+        from display.round_touch.screens import flip_board as screen
+
+        screen.open_id_picker()
+        screen._draw_id_picker(self._surface())
+        rect = next(r for action, r in screen._id_picker_hits if action == "callsign")
+        self.assertEqual(screen.id_picker_hit(rect.centerx, rect.centery), "callsign")
+
+    def test_id_picker_outside_tap_closes(self):
+        from display.round_touch.screens import flip_board as screen
+
+        screen.open_id_picker()
+        screen._draw_id_picker(self._surface())
+        self.assertEqual(screen.id_picker_hit(1, 1), "close")
+
+    def test_row_target_uses_the_selected_identity(self):
+        from display.round_touch import settings
+        from display.round_touch.screens import flip_board as screen
+
+        event = {
+            "id": "N12345",
+            "tail": "N12345",
+            "callsign": "SKW12",
+            "flight_number": "UA12",
+            "at": 1_700_000_000,
+        }
+        original = settings.flip_board_id()
+        try:
+            settings.set_flip_board_id("callsign")
+            self.assertTrue(screen._row_target(event).startswith("SKW12"))
+            settings.set_flip_board_id("flight_number")
+            self.assertTrue(screen._row_target(event).startswith("UA12"))
+            settings.set_flip_board_id("tail")
+            self.assertTrue(screen._row_target(event).startswith("N12345"))
+        finally:
+            settings.set_flip_board_id(original)
 
     def test_tap_on_the_board_body_is_detected(self):
         from display.round_touch import theme
@@ -589,3 +647,47 @@ class MeridiemTests(ScreenTestCase):
             self.assertTrue(flip_board.fits_in_circle())
         finally:
             settings.use_12hr_clock = saved
+
+
+class BoardClockTests(ScreenTestCase):
+    """The dial clock sits above the radar button with a 12-hour A/P."""
+
+    def test_twelve_hour_draws_a_or_p_beside_the_time(self):
+        from display.round_touch import settings
+        from display.round_touch.screens import flip_board as screen
+
+        saved = settings.use_12hr_clock
+        try:
+            settings.use_12hr_clock = lambda: True
+            time_rect, mer_rect, meridiem = screen._clock_layout()
+        finally:
+            settings.use_12hr_clock = saved
+        self.assertIn(meridiem, ("A", "P"))
+        self.assertIsNotNone(mer_rect)
+        self.assertGreater(mer_rect.x, time_rect.right)
+        self.assertLess(mer_rect.height, time_rect.height)
+        self.assertEqual(mer_rect.bottom, time_rect.bottom)
+
+    def test_twenty_four_hour_has_no_meridiem(self):
+        from display.round_touch import settings
+        from display.round_touch.screens import flip_board as screen
+
+        saved = settings.use_12hr_clock
+        try:
+            settings.use_12hr_clock = lambda: False
+            _time_rect, mer_rect, meridiem = screen._clock_layout()
+        finally:
+            settings.use_12hr_clock = saved
+        self.assertEqual(meridiem, "")
+        self.assertIsNone(mer_rect)
+
+    def test_clock_is_lifted_off_the_radar_button(self):
+        from display.round_touch.screens import flip_board as screen
+
+        rect = screen._clock_rect()
+        radar_top = screen._radar_icon_top()
+        self.assertLessEqual(
+            rect.bottom + screen.CLOCK_LIFT_PX,
+            radar_top,
+            "clock should sit 20px above the radar button",
+        )

@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import inspect
 import os
 import re
 import sys
@@ -56,6 +57,36 @@ class TestSetting(unittest.TestCase):
         state["show_flip_board"] = True
         self.assertNotEqual(off, settings._settings_snapshot(state))
 
+    def test_sound_setting_is_in_the_portal_sync_snapshot(self):
+        """Board flip sound is portal-synced; omit it and a save reverts."""
+        from display.round_touch import settings
+
+        state = dict(settings._defaults)
+        state["flip_board_sound"] = False
+        off = settings._settings_snapshot(state)
+        state["flip_board_sound"] = True
+        self.assertNotEqual(off, settings._settings_snapshot(state))
+
+    def test_id_setting_is_in_the_portal_sync_snapshot(self):
+        from display.round_touch import settings
+
+        state = dict(settings._defaults)
+        state["flip_board_id"] = "tail"
+        tail = settings._settings_snapshot(state)
+        state["flip_board_id"] = "callsign"
+        self.assertNotEqual(tail, settings._settings_snapshot(state))
+
+    def test_id_setter_rejects_unknown_modes(self):
+        from display.round_touch import settings
+
+        original = settings.flip_board_id()
+        try:
+            self.assertEqual(settings.set_flip_board_id("callsign"), "callsign")
+            self.assertEqual(settings.flip_board_id(), "callsign")
+            self.assertEqual(settings.set_flip_board_id("nope"), "tail")
+        finally:
+            settings.set_flip_board_id(original)
+
 
 class TestDeviceSettingsRow(unittest.TestCase):
     def test_layers_actions_and_labels_stay_aligned(self):
@@ -89,14 +120,22 @@ class TestScreenIsRegistered(unittest.TestCase):
 
         self.assertTrue(hasattr(app.flip_board, "draw_flip_board"))
 
-    def test_screen_uses_curved_breadcrumb_hit_testing(self):
-        """The screen draws a curved breadcrumb, so back-tap must use the arc."""
-        source = open(
-            os.path.join(REPO_ROOT, "display", "round_touch", "app.py"),
-            encoding="utf-8",
-        ).read()
-        block = source.split("def _breadcrumb_tapped", 1)[1].split("return nav.tap_breadcrumb(", 1)[0]
-        self.assertIn("SCREEN_FLIP_BOARD", block)
+    def test_the_board_has_no_breadcrumb(self):
+        """Radar is the footer button; the top of the dial is empty of chrome."""
+        from display.round_touch.screens import flip_board
+
+        source = inspect.getsource(flip_board.draw_flip_board)
+        self.assertNotIn("draw_curved_breadcrumb", source)
+        self.assertNotIn("draw_breadcrumb", source)
+        self.assertNotIn("draw_curved_page_dots", source)
+        self.assertNotIn("draw_page_dots", source)
+
+    def test_rim_tap_is_not_a_breadcrumb_back(self):
+        from display.round_touch import app, nav, theme
+
+        fake = type("D", (), {"screen": app.SCREEN_FLIP_BOARD})()
+        x, y = theme.CENTER_X, theme.CENTER_Y - int(nav.CURVED_BREADCRUMB_RADIUS)
+        self.assertFalse(app.RoundTouchDisplay._breadcrumb_tapped(fake, x, y))
 
 
 class TestPortalWiring(unittest.TestCase):
@@ -119,6 +158,17 @@ class TestPortalWiring(unittest.TestCase):
     def test_template_has_the_control(self):
         self.assertIn('id="show_flip_board"', self._portal_html())
 
+    def test_template_has_the_id_control(self):
+        html = self._portal_html()
+        self.assertIn('id="flip_board_id"', html)
+        self.assertIn('value="flight_number"', html)
+        self.assertIn('value="callsign"', html)
+
+    def test_portal_saves_the_id_setting(self):
+        source = self._portal_app()
+        self.assertIn('if "flip_board_id" in data:', source)
+        self.assertIn("settings.set_flip_board_id(", source)
+
     def test_template_hydrates_the_control(self):
         self.assertIn(
             '$("show_flip_board").checked = !!r.show_flip_board', self._portal_html()
@@ -131,6 +181,8 @@ class TestPortalWiring(unittest.TestCase):
         sent = len(re.findall(r"show_flip_board:\s*\$\(", html))
         self.assertEqual(sent, payloads)
         self.assertGreaterEqual(sent, 2)
+        ids = len(re.findall(r"flip_board_id:\s*\$\(", html))
+        self.assertEqual(ids, payloads)
 
 
 class TestVisibleAirports(unittest.TestCase):

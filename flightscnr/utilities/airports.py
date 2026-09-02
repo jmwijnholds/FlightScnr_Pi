@@ -93,7 +93,8 @@ def _record_from_row(row: dict) -> dict | None:
         rec["type"] = atype
     # Field elevation, when the source row has it. Used by the arrival /
     # departure board to turn altitudes into height above the field. Absent
-    # from caches built before this was parsed — callers treat that as 0.
+    # from caches built before this was parsed — callers skip the field
+    # rather than treating missing elevation as sea level.
     try:
         rec["elevation_ft"] = int(float(row["elevation_ft"]))
     except (KeyError, TypeError, ValueError):

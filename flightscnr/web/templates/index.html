@@ -362,7 +362,14 @@
                 <label for="show_flip_board">Arrival / departure board</label>
                 <span class="switch"><input id="show_flip_board" type="checkbox"><span class="track"></span></span>
             </div>
-            <p class="hint">Adds a split-flap board screen listing the last five arrivals and departures for each airport in radar range, by tail number or callsign. Movements are worked out on the device from the aircraft the radar already tracks, so no flight-schedule subscription is needed. Swipe left from the Moon screen to reach it; tap the board to flip between arrivals and departures, or tap a row for an aircraft tile.</p>
+            <p class="hint">Adds a split-flap board screen listing recent arrivals and departures for each airport in radar range, by tail number, flight number, or callsign. Movements are worked out on the device from the aircraft the radar already tracks, so no flight-schedule subscription is needed. Swipe left from the Moon screen to reach it; tap the board to flip between arrivals and departures, or tap a row for an aircraft tile. The ID button next to Next picks which identity the flaps show.</p>
+            <label for="flip_board_id">Board identity</label>
+            <select id="flip_board_id">
+                <option value="tail">Tail number</option>
+                <option value="flight_number">Flight number</option>
+                <option value="callsign">Callsign</option>
+            </select>
+            <p class="hint">What each split-flap row shows. Missing values fall back (a GA tail with no flight number still shows the N-number).</p>
             <div class="chk">
                 <label for="flip_board_sound">Board flip sound</label>
                 <span class="switch"><input id="flip_board_sound" type="checkbox"><span class="track"></span></span>
@@ -1446,6 +1453,7 @@ async function loadAll() {
         if ($("airport_min_size")) $("airport_min_size").value = r.airport_min_size || "small";
         if ($("show_flip_board")) $("show_flip_board").checked = !!r.show_flip_board;
         if ($("flip_board_sound")) $("flip_board_sound").checked = !!r.flip_board_sound;
+        if ($("flip_board_id")) $("flip_board_id").value = r.flip_board_id || "tail";
         if ($("show_ground_vehicles")) $("show_ground_vehicles").checked = r.show_ground_vehicles !== false;
         $("traffic_mode").value = r.traffic_mode || (r.ais_enabled ? "both" : "aircraft");
         if ($("vessel_min_speed")) $("vessel_min_speed").value = String(r.vessel_min_speed_kt ?? 0);
@@ -1851,6 +1859,7 @@ async function saveRadar() {
                 airport_min_size: $("airport_min_size") ? $("airport_min_size").value : "small",
                 show_flip_board: $("show_flip_board") ? $("show_flip_board").checked : false,
                 flip_board_sound: $("flip_board_sound") ? $("flip_board_sound").checked : true,
+                flip_board_id: $("flip_board_id") ? $("flip_board_id").value : "tail",
                 show_ground_vehicles: $("show_ground_vehicles") ? $("show_ground_vehicles").checked : true,
                 map_style: $("map_style").value,
                 vfr_map_opacity: Number($("vfr_opacity") ? $("vfr_opacity").value : 45),
@@ -2097,6 +2106,7 @@ async function saveAndReloadSettings(statusId) {
                 airport_min_size: $("airport_min_size") ? $("airport_min_size").value : "small",
                 show_flip_board: $("show_flip_board") ? $("show_flip_board").checked : false,
                 flip_board_sound: $("flip_board_sound") ? $("flip_board_sound").checked : true,
+                flip_board_id: $("flip_board_id") ? $("flip_board_id").value : "tail",
                 show_ground_vehicles: $("show_ground_vehicles") ? $("show_ground_vehicles").checked : true,
                 map_style: $("map_style").value,
                 vfr_map_opacity: Number($("vfr_opacity") ? $("vfr_opacity").value : 45),

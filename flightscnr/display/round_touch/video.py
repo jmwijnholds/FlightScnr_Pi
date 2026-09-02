@@ -23,6 +23,49 @@ logger = logging.getLogger("flightscnr.display")
 # Common Pi drivers, in rough order of preference when not under a desktop session.
 _FALLBACK_DRIVERS = ("fbcon", "directfb", "x11", "wayland", "dummy")
 
+# Pulse is PipeWire's compatibility socket — the same graph mpv uses for ATC.
+# SDL's Pi default is often ALSA card 0 (HDMI / headphones), so mixer "plays"
+# while the USB or Bluetooth speaker stays silent.
+SDL_PULSE_DRIVER = "pulse"
+MIXER_FREQUENCY = 44100
+MIXER_SIZE = -16
+MIXER_CHANNELS = 2
+MIXER_BUFFER = 2048
+
+
+def configure_sdl_audio(*, speaker: bool | None = None) -> str:
+    """Set ``SDL_AUDIODRIVER`` for pygame.mixer. Returns the driver name.
+
+    A speaker present means Pulse, even if a previous attempt left dummy or
+    ALSA in the environment. No speaker keeps dummy so SDL does not probe
+    HDMI and underrun.
+    """
+    if speaker is None:
+        try:
+            from utilities.audio_output import speaker_connected
+
+            speaker = bool(speaker_connected())
+        except Exception:
+            speaker = False
+    if speaker:
+        os.environ["SDL_AUDIODRIVER"] = SDL_PULSE_DRIVER
+        return SDL_PULSE_DRIVER
+    os.environ["SDL_AUDIODRIVER"] = "dummy"
+    return "dummy"
+
+
+def sdl_audio_driver() -> str:
+    return (os.environ.get("SDL_AUDIODRIVER") or "").strip().lower()
+
+
+def pre_init_mixer() -> None:
+    pygame.mixer.pre_init(
+        frequency=MIXER_FREQUENCY,
+        size=MIXER_SIZE,
+        channels=MIXER_CHANNELS,
+        buffer=MIXER_BUFFER,
+    )
+
 
 def _driver_candidates():
     try:
@@ -67,21 +110,16 @@ def init_display(width: int, height: int, fullscreen: bool) -> pygame.Surface:
         label = driver or "auto"
 
         try:
-            # Avoid SDL/Pulse probing when no USB speaker is present (root +
-            # XDG_RUNTIME_DIR noise, ALSA underruns). Display does not need audio.
+            # Avoid SDL/ALSA probing HDMI when no USB speaker is present
+            # (root + XDG_RUNTIME_DIR noise, underruns). A speaker means
+            # Pulse so pygame.mixer shares the ATC sink, not card 0.
             try:
-                from utilities.audio_output import speaker_connected
-
-                if not speaker_connected():
-                    os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
-                else:
+                if configure_sdl_audio() == SDL_PULSE_DRIVER:
                     # SDL holds the device open even when nothing is playing, so
                     # a starved buffer spams snd_pcm_recover forever rather than
                     # once per sound. 512 frames (~12ms) could not survive the
                     # render loop; 2048 gives the callback ~46ms of slack.
-                    pygame.mixer.pre_init(
-                        frequency=44100, size=-16, channels=2, buffer=2048
-                    )
+                    pre_init_mixer()
             except Exception:
                 pass
             pygame.init()

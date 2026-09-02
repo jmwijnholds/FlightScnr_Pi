@@ -162,6 +162,8 @@ def content(flights: list[dict] | None = None) -> dict:
     at = float(event.get("at") or 0.0)
 
     from display.round_touch.screens import flip_board as board_screen
+    from display.round_touch import settings
+    from utilities.flip_board import board_label
 
     clock = board_screen.format_clock(at).strip()
     suffix = board_screen.clock_meridiem(at)
@@ -170,7 +172,7 @@ def content(flights: list[dict] | None = None) -> dict:
     type_name = format_aircraft_type(str(event.get("type") or ""))
     bucket = str(event.get("bucket") or "arrivals")
     return {
-        "id": str(event.get("id") or ""),
+        "id": board_label(event, settings.flip_board_id()),
         "type_name": type_name or "Type unknown",
         "movement": "Departed" if bucket == "departures" else "Arrived",
         "when": when,
