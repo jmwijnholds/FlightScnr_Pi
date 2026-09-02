@@ -12,6 +12,8 @@ A [round **4″ touch display**](https://www.waveshare.com/4inch-dsi-lcd-c.htm?&
 <strong><a href="https://discord.gg/wjqgUjv8Re">FlightScnrPi Discord</a></strong> — community help, builds, and troubleshooting
 </div>
 
+[![Repo analytics](https://raw.githubusercontent.com/yashmulgaonkar/repo-analytics/main/out/FlightScnr_Pi/analytics.svg)](https://github.com/yashmulgaonkar/repo-analytics)
+
 ---
 
 ## Features
