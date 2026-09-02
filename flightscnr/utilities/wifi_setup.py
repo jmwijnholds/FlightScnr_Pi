@@ -51,6 +51,10 @@ CONNECTED_FLAG_PATH = os.path.join(DATA_DIR, "wifi_setup_connected")
 # Cross-process: portal/display is mid client-join — AP watchdog must stay out.
 JOIN_BUSY_PATH = os.path.join(DATA_DIR, "wifi_setup_joining")
 RADIO_LOCK_PATH = os.path.join(DATA_DIR, "wifi_setup_radio.lock")
+# Cross-process: portal/settings ask the display to enter Wi-Fi setup.
+ENTER_REQUEST_PATH = os.path.join(DATA_DIR, "wifi_setup_enter_request")
+# Portal preference file (same path as display.round_touch.settings.SETTINGS_PATH).
+_SETTINGS_JSON_PATH = os.path.join(DATA_DIR, "round_touch_settings.json")
 JOIN_BUSY_STALE_S = 180.0
 AP_CONNECTION_NAME = "flightscnr-setup-ap"
 AP_SSID_PREFIX = "FlightScnr-Setup"
@@ -132,6 +136,35 @@ def skip_requested() -> bool:
         "true",
         "yes",
     )
+
+
+def _portal_auto_wifi_setup_hotspot() -> bool:
+    """Read portal preference from round_touch_settings.json (default True).
+
+    Disk read avoids importing display.round_touch.settings (circular risk) and
+    works the same in the Flask child and the display process.
+    """
+    try:
+        with open(_SETTINGS_JSON_PATH, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict) and "auto_wifi_setup_hotspot" in data:
+            return bool(data.get("auto_wifi_setup_hotspot"))
+    except FileNotFoundError:
+        pass
+    except (OSError, json.JSONDecodeError, TypeError):
+        logger.debug("Could not read auto_wifi_setup_hotspot", exc_info=True)
+    return True
+
+
+def auto_hotspot_enabled() -> bool:
+    """False when env skip is set or the portal auto-hotspot preference is off.
+
+    When False, lost-link / offline grace must not open the setup AP. First-boot
+    with no saved client Wi-Fi still enters setup (see should_enter_setup_at_boot).
+    """
+    if skip_requested():
+        return False
+    return _portal_auto_wifi_setup_hotspot()
 
 
 def force_requested() -> bool:
@@ -416,7 +449,9 @@ def should_enter_setup_at_boot() -> bool:
     """Boot-time decision, including fallback when a saved SSID is not found.
 
     If client Wi-Fi profiles exist but never associate (wrong place, AP off,
-    bad PSK), wait briefly for NetworkManager autoconnect, then enter setup.
+    bad PSK), wait briefly for NetworkManager autoconnect, then enter setup
+    unless the portal auto-hotspot preference (or env skip) disables that path.
+    No saved profiles still enters setup so first pairing always works.
     """
     if skip_requested():
         return False
@@ -426,6 +461,12 @@ def should_enter_setup_at_boot() -> bool:
         return False
     if not saved_client_wifi_names():
         return True
+    if not auto_hotspot_enabled():
+        logger.info(
+            "Saved Wi-Fi present but offline — auto setup hotspot disabled; "
+            "leaving NetworkManager to reconnect"
+        )
+        return False
     grace = offline_grace_s()
     logger.info(
         "Saved Wi-Fi present but not connected — waiting %.0fs before setup hotspot",
@@ -443,6 +484,8 @@ def should_enter_setup_after_offline(offline_s: float) -> bool:
         return False
     if force_requested():
         return True
+    if not _portal_auto_wifi_setup_hotspot():
+        return False
     if link_up():
         return False
     if setup_mode_active() and ap_radio_active():
@@ -482,6 +525,41 @@ def clear_wifi_connected_flag() -> None:
 
 def wifi_connect_signaled() -> bool:
     return os.path.isfile(CONNECTED_FLAG_PATH)
+
+
+def request_enter_wifi_setup() -> bool:
+    """Ask the display process to enter Wi-Fi setup (cross-process).
+
+    Returns False when env skip is set (admin override blocks manual entry too).
+    """
+    if skip_requested():
+        return False
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = ENTER_REQUEST_PATH + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"at": time.time(), "pid": os.getpid()}, fh)
+        os.replace(tmp, ENTER_REQUEST_PATH)
+        return True
+    except OSError as exc:
+        logger.warning("Could not write Wi-Fi enter-setup request: %s", exc)
+        return False
+
+
+def clear_enter_wifi_setup_request() -> None:
+    try:
+        if os.path.isfile(ENTER_REQUEST_PATH):
+            os.unlink(ENTER_REQUEST_PATH)
+    except OSError:
+        pass
+
+
+def consume_enter_wifi_setup_request() -> bool:
+    """True once if a pending enter-setup request existed (clears the flag)."""
+    if not os.path.isfile(ENTER_REQUEST_PATH):
+        return False
+    clear_enter_wifi_setup_request()
+    return True
 
 
 def _pid_alive(pid: int) -> bool:

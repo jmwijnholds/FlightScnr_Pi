@@ -469,6 +469,9 @@ _defaults = {
     # Safety disclaimer "Don't show again" version (0 = not remembered).
     # Matches disclaimer_acceptance.CURRENT_VERSION when opted in on-device.
     "safety_disclaimer_version": 0,
+    # When True (default), lost-link / offline grace may open the setup hotspot.
+    # First-boot with no saved Wi-Fi still enters setup even when False.
+    "auto_wifi_setup_hotspot": True,
 }
 
 # Live preview while calibrating facing (not persisted until save).
@@ -2602,6 +2605,16 @@ def toggle_auto_idle_clock():
 
 def set_auto_idle_clock_enabled(enabled: bool):
     _state["auto_idle_clock"] = bool(enabled)
+    _save(_state)
+
+
+def auto_wifi_setup_hotspot_enabled() -> bool:
+    """True when lost-link may automatically open the Wi-Fi setup hotspot."""
+    return bool(_state.get("auto_wifi_setup_hotspot", True))
+
+
+def set_auto_wifi_setup_hotspot_enabled(enabled: bool) -> None:
+    _state["auto_wifi_setup_hotspot"] = bool(enabled)
     _save(_state)
 
 
