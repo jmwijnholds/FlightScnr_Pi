@@ -323,6 +323,30 @@ def wifi_try_saved():
     ), code
 
 
+@app.post("/wifi/start-setup")
+def wifi_start_setup():
+    """Ask the display process to open the Wi-Fi setup hotspot (manual recovery)."""
+    from utilities import wifi_setup
+
+    if wifi_setup.skip_requested():
+        return jsonify(
+            {
+                "ok": False,
+                "message": "Wi-Fi setup is disabled by FLIGHTSCNR_SKIP_WIFI_SETUP.",
+            }
+        ), 400
+    if not wifi_setup.request_enter_wifi_setup():
+        return jsonify(
+            {"ok": False, "message": "Could not request Wi-Fi setup."}
+        ), 500
+    return jsonify(
+        {
+            "ok": True,
+            "message": "Opening Wi-Fi setup on the display…",
+        }
+    )
+
+
 @app.get("/")
 def index():
     if _wifi_portal_active():
@@ -947,6 +971,7 @@ def display_json():
             "lofi_volume": settings.lofi_volume(),
             "lofi_controls_enabled": settings.lofi_controls_enabled(),
             "lofi_title_scroll": settings.lofi_title_scroll(),
+            "auto_wifi_setup_hotspot": settings.auto_wifi_setup_hotspot_enabled(),
         }
     )
 
@@ -1051,6 +1076,11 @@ def display_save():
         settings.set_lofi_controls_enabled(bool(data.get("lofi_controls_enabled")))
     if "lofi_title_scroll" in data:
         settings.set_lofi_title_scroll(bool(data.get("lofi_title_scroll")))
+    if "auto_wifi_setup_hotspot" in data:
+        settings.set_auto_wifi_setup_hotspot_enabled(
+            bool(data.get("auto_wifi_setup_hotspot"))
+        )
+        settings.request_reload()
     return jsonify(
         {
             "ok": True,
@@ -1085,6 +1115,7 @@ def display_save():
             "lofi_volume": settings.lofi_volume(),
             "lofi_controls_enabled": settings.lofi_controls_enabled(),
             "lofi_title_scroll": settings.lofi_title_scroll(),
+            "auto_wifi_setup_hotspot": settings.auto_wifi_setup_hotspot_enabled(),
             "message": "Display settings saved.",
         }
     )
@@ -1537,8 +1568,8 @@ def radar_json():
             "show_airport_icons": settings.show_airport_icons(),
             "airport_icon_style": settings.airport_icon_style(),
             "airport_min_size": settings.airport_min_size(),
-            "show_flip_board": settings.show_flip_board(),
             "flip_board_sound": settings.flip_board_sound_enabled(),
+            "flip_board_id": settings.flip_board_id(),
             "show_ground_vehicles": settings.show_ground_vehicles(),
             "traffic_mode": settings.traffic_mode(),
             "ais_enabled": settings.ais_enabled(),
@@ -1745,10 +1776,10 @@ def radar_save():
 
         settings.set_airport_min_size(str(data.get("airport_min_size") or "small"))
         airport_overlay.invalidate()
-    if "show_flip_board" in data:
-        settings.set_show_flip_board(bool(data.get("show_flip_board")))
     if "flip_board_sound" in data:
         settings.set_flip_board_sound_enabled(bool(data.get("flip_board_sound")))
+    if "flip_board_id" in data:
+        settings.set_flip_board_id(str(data.get("flip_board_id") or "tail"))
     if "show_ground_vehicles" in data:
         settings.set_show_ground_vehicles(bool(data.get("show_ground_vehicles")))
     if "map_style" in data:

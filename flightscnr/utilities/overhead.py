@@ -893,7 +893,8 @@ class Overhead:
     def __init__(self):
         self._api = FR24Client()
         self._lock = Lock()
-        self._data = []           # overhead flights
+        self._data = []           # overhead flights (altitude-filtered for radar)
+        self._data_all = []       # same cycle, before altitude floor (flip board)
         self._tracked_data = None # tracked flight or None
         self._new_data = False
         self._processing = False
@@ -1779,7 +1780,14 @@ class Overhead:
             else:
                 stats["tracked_status"] = ""
 
-            # Drop anything below MIN_HEIGHT before display / web UI
+            # Snapshot before MIN_HEIGHT so the flip board can observe
+            # approaches that radar declutter would hide. Aircraft only —
+            # vessels never come through this list.
+            overhead_data_all = [
+                e for e in overhead_data if e.get("kind") != "vessel"
+            ]
+
+            # Drop anything below MIN_HEIGHT before radar display / web UI
             try:
                 from config import passes_altitude_filter
                 before = len(overhead_data)
@@ -1804,6 +1812,7 @@ class Overhead:
 
             with self._lock:
                 self._data = overhead_data
+                self._data_all = overhead_data_all
                 self._tracked_data = tracked_data
                 self._new_data = True
 
@@ -1812,6 +1821,7 @@ class Overhead:
             flush_flight_counter()
             with self._lock:
                 self._data = []
+                self._data_all = []
                 self._tracked_data = None
                 self._new_data = True
         except Exception as e:
@@ -1819,6 +1829,7 @@ class Overhead:
             flush_flight_counter()
             with self._lock:
                 self._data = []
+                self._data_all = []
                 self._tracked_data = None
                 self._new_data = True
         finally:
@@ -2109,6 +2120,11 @@ class Overhead:
         """Thread-safe snapshot for display refresh without clearing new_data."""
         with self._lock:
             return list(self._data)
+
+    def peek_data_unfiltered(self):
+        """Aircraft snapshot before MIN_HEIGHT — for flip board observation."""
+        with self._lock:
+            return list(self._data_all)
 
     @property
     def grab_seq(self):

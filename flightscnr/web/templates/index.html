@@ -375,16 +375,14 @@
             </select>
             <p class="hint">OurAirports tags most dirt strips and private fields as small airports. "Paved only" keeps small fields with at least one paved runway.</p>
             <p class="hint">Airport pin icons (airport.png) for large, medium, and small airports in range. Heliports and closed fields are skipped.</p>
-            <div class="chk">
-                <label for="show_flip_board" data-i18n="portal.radar.flip_board.label">Arrival / departure board</label>
-                <span class="switch"><input id="show_flip_board" type="checkbox"><span class="track"></span></span>
-            </div>
-            <p class="hint" data-i18n="portal.radar.flip_board.hint">Adds a split-flap board screen listing the last five arrivals and departures for each airport in radar range, by tail number or callsign. Movements are worked out on the device from the aircraft the radar already tracks, so no flight-schedule subscription is needed. Swipe left from the Moon screen to reach it; tap the board to flip between arrivals and departures, or tap a row for an aircraft tile.</p>
-            <div class="chk">
-                <label for="flip_board_sound" data-i18n="portal.radar.flip_board_sound.label">Board flip sound</label>
-                <span class="switch"><input id="flip_board_sound" type="checkbox"><span class="track"></span></span>
-            </div>
-            <p class="hint" data-i18n="portal.radar.flip_board_sound.hint">Split-flap clatter while the board turns, synthesized on the device. Density follows how many tiles are moving. Needs a speaker, and follows the master sound switch and the off-hours schedule.</p>
+            <p class="hint" data-i18n="portal.radar.flip_board.hint">Split-flap arrivals and departures for each airport in radar range, by tail number, flight number, or callsign. Movements are worked out on the device from the aircraft the radar already tracks, so no flight-schedule subscription is needed. Swipe left from the radar to reach it; tap the board to flip between arrivals and departures, or tap a row for an aircraft tile. The ID button next to Next picks which identity the flaps show.</p>
+            <label for="flip_board_id" data-i18n="portal.radar.flip_board_id.label">Board identity</label>
+            <select id="flip_board_id">
+                <option value="tail" data-i18n="portal.radar.flip_board_id.tail">Tail number</option>
+                <option value="flight_number" data-i18n="portal.radar.flip_board_id.flight_number">Flight number</option>
+                <option value="callsign" data-i18n="portal.radar.flip_board_id.callsign">Callsign</option>
+            </select>
+            <p class="hint" data-i18n="portal.radar.flip_board_id.hint">What each split-flap row shows. Missing values fall back (a GA tail with no flight number still shows the N-number).</p>
             <div class="chk">
                 <label for="show_ground_vehicles">Show ground vehicles</label>
                 <span class="switch"><input id="show_ground_vehicles" type="checkbox"><span class="track"></span></span>
@@ -439,7 +437,7 @@
                     <input id="fav_name" type="text" autocomplete="off" placeholder="e.g. Heathrow" maxlength="40">
                     <label for="fav_position">Location Position (lat, lon)</label>
                     <input id="fav_position" type="text" autocomplete="off" placeholder="e.g. 51.470748, -0.459909">
-                    <p class="hint">Radar center above is Home. After Set Radar Center on the Pi you can Update the active favorite, Save as Home, or keep as Custom. The last center is what reboot restores. Swipe left on the radar to cycle Home and saved favorites, or pick one under Settings → Options → Favorite Locations. Max 10 favorites.</p>
+                    <p class="hint" data-i18n="portal.favorites.add.hint">Radar center above is Home. After Set Radar Center on the Pi you can Update the active favorite, Save as Home, or keep as Custom. The last center is what reboot restores. Pick a saved center under Settings → Options → Favorite Locations. Max 10 favorites.</p>
                     <button class="btn btn-primary" id="btn-fav-add" style="margin-top:.5rem" type="button">Add location</button>
                     <div id="fav-add-status" class="status"></div>
                 </div>
@@ -676,6 +674,11 @@
             <label for="earthquake_voice_volume">Earthquake alert volume <span id="earthquake_voice_volume_label">80%</span></label>
             <input id="earthquake_voice_volume" type="range" min="0" max="100" step="1" value="80">
             <p class="hint">Off by default. Plays a voice clip once per new USGS event M3.0+ in radar range. Not earthquake early warning — catalog events can be minutes old. Silent during quiet hours and display off-hours. Needs the earthquake layer on, plus a USB or Bluetooth speaker.</p>
+            <div class="chk">
+                <label for="flip_board_sound" data-i18n="portal.radar.flip_board_sound.label">Board flip sound</label>
+                <span class="switch"><input id="flip_board_sound" type="checkbox"><span class="track"></span></span>
+            </div>
+            <p class="hint" data-i18n="portal.radar.flip_board_sound.hint">Split-flap clatter while the arrivals board turns. Density follows how many tiles are moving. Needs a speaker, and follows the master sound switch and the off-hours schedule.</p>
             <button class="btn btn-primary" id="btn-save-reload" style="margin-top:.7rem" type="button">Save &amp; reload on display</button>
             <div id="display-status" class="status"></div>
         </div>
@@ -979,8 +982,18 @@
     </details>
 
     <details class="card system-card">
-        <summary><span class="ico">&#9881;</span><span data-i18n="portal.section.system.title">System</span><span class="sum" data-i18n="portal.section.system.summary">power</span><span class="chev">&#9656;</span></summary>
+        <summary><span class="ico">&#9881;</span><span data-i18n="portal.section.system.title">System</span><span class="sum" data-i18n="portal.section.system.summary">power, Wi-Fi</span><span class="chev">&#9656;</span></summary>
         <div class="body">
+            <p class="hint" data-i18n="portal.system.wifi_setup.hint">When enabled (default), FlightScnr opens the setup hotspot if the network stays down past a short grace period. Turn this off on mesh or always-on Wi-Fi so NetworkManager can keep reconnecting. First-time setup with no saved Wi-Fi still uses the QR hotspot. Use Start Wi-Fi setup for recovery.</p>
+            <div class="chk">
+                <label for="auto_wifi_setup_hotspot" data-i18n="portal.system.wifi_setup.automatic.label">Automatic Wi-Fi setup hotspot</label>
+                <span class="switch"><input id="auto_wifi_setup_hotspot" type="checkbox" checked><span class="track"></span></span>
+            </div>
+            <div class="track-row" style="margin-top:.55rem">
+                <button class="btn btn-primary" id="btn-wifi-start-setup" type="button" data-i18n="portal.system.wifi_setup.start">Start Wi-Fi setup</button>
+            </div>
+            <div id="wifi-setup-pref-status" class="status"></div>
+            <hr style="border:none;border-top:1px solid var(--line, #333);margin:1rem 0">
             <p class="hint">Download a backup of portal preferences (radar, display, alerts, weather, off-hours, favourites, location, ATC, and API keys). The file includes secrets — keep it private. Does not include maps, photos, or <code>/etc/flightscnr.env</code>.</p>
             <div class="track-row" style="margin-top:.55rem">
                 <button class="btn btn-primary" id="btn-export-settings" type="button">Download settings</button>
@@ -1038,7 +1051,7 @@
     </details>
 
 
-    <p class="wifi-note">First-time Wi-Fi uses the on-device QR setup hotspot when no network is configured.</p>
+    <p class="wifi-note" data-i18n="portal.footer.wifi">First-time Wi-Fi uses the on-device QR setup hotspot when no network is configured. Automatic hotspot after a lost link can be changed under System.</p>
     <p class="foot">
         <a href="/stats">Statistics</a> ·
         <a href="/closest">Closest map</a> ·
@@ -1691,8 +1704,8 @@ async function loadAll() {
         if ($("show_airport_icons")) $("show_airport_icons").checked = !!r.show_airport_icons;
         if ($("airport_icon_style")) $("airport_icon_style").value = r.airport_icon_style || "classic";
         if ($("airport_min_size")) $("airport_min_size").value = r.airport_min_size || "small";
-        if ($("show_flip_board")) $("show_flip_board").checked = !!r.show_flip_board;
         if ($("flip_board_sound")) $("flip_board_sound").checked = !!r.flip_board_sound;
+        if ($("flip_board_id")) $("flip_board_id").value = r.flip_board_id || "tail";
         if ($("show_ground_vehicles")) $("show_ground_vehicles").checked = r.show_ground_vehicles !== false;
         $("traffic_mode").value = r.traffic_mode || (r.ais_enabled ? "both" : "aircraft");
         if ($("vessel_min_speed")) $("vessel_min_speed").value = String(r.vessel_min_speed_kt ?? 0);
@@ -1765,6 +1778,9 @@ async function loadAll() {
             $("lofi_volume").value = String(d.lofi_volume ?? 25);
             const ll = $("lofi_volume_label");
             if (ll) ll.textContent = `${$("lofi_volume").value}%`;
+        }
+        if ($("auto_wifi_setup_hotspot")) {
+            $("auto_wifi_setup_hotspot").checked = d.auto_wifi_setup_hotspot !== false;
         }
         syncChimeVolumeLabel();
     } catch (_) {}
@@ -2126,8 +2142,8 @@ async function saveRadar() {
                 show_airport_icons: $("show_airport_icons") ? $("show_airport_icons").checked : false,
                 airport_icon_style: $("airport_icon_style") ? $("airport_icon_style").value : "classic",
                 airport_min_size: $("airport_min_size") ? $("airport_min_size").value : "small",
-                show_flip_board: $("show_flip_board") ? $("show_flip_board").checked : false,
                 flip_board_sound: $("flip_board_sound") ? $("flip_board_sound").checked : true,
+                flip_board_id: $("flip_board_id") ? $("flip_board_id").value : "tail",
                 show_ground_vehicles: $("show_ground_vehicles") ? $("show_ground_vehicles").checked : true,
                 map_style: $("map_style").value,
                 vfr_map_opacity: Number($("vfr_opacity") ? $("vfr_opacity").value : 45),
@@ -2392,8 +2408,8 @@ async function saveAndReloadSettings(statusId) {
                 show_airport_icons: $("show_airport_icons") ? $("show_airport_icons").checked : false,
                 airport_icon_style: $("airport_icon_style") ? $("airport_icon_style").value : "classic",
                 airport_min_size: $("airport_min_size") ? $("airport_min_size").value : "small",
-                show_flip_board: $("show_flip_board") ? $("show_flip_board").checked : false,
                 flip_board_sound: $("flip_board_sound") ? $("flip_board_sound").checked : true,
+                flip_board_id: $("flip_board_id") ? $("flip_board_id").value : "tail",
                 show_ground_vehicles: $("show_ground_vehicles") ? $("show_ground_vehicles").checked : true,
                 map_style: $("map_style").value,
                 vfr_map_opacity: Number($("vfr_opacity") ? $("vfr_opacity").value : 45),
@@ -2438,6 +2454,7 @@ async function saveAndReloadSettings(statusId) {
                 lofi_volume: $("lofi_volume") ? Number($("lofi_volume").value) : 25,
                 lofi_controls_enabled: $("lofi_controls_enabled") ? $("lofi_controls_enabled").checked : false,
                 lofi_title_scroll: $("lofi_title_scroll") ? $("lofi_title_scroll").checked : true,
+                auto_wifi_setup_hotspot: $("auto_wifi_setup_hotspot") ? $("auto_wifi_setup_hotspot").checked : true,
             }),
         });
         const loc = ($("radar_center").value || "").trim();
@@ -3378,6 +3395,52 @@ if ($("hide_update_banner")) {
 }
 if ($("auto_update_time")) {
     $("auto_update_time").addEventListener("change", saveAutoUpdatePrefs);
+}
+if ($("auto_wifi_setup_hotspot")) {
+    $("auto_wifi_setup_hotspot").addEventListener("change", async () => {
+        clearStatus("wifi-setup-pref-status");
+        try {
+            const data = await jsonFetch("/display", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    auto_wifi_setup_hotspot: $("auto_wifi_setup_hotspot").checked,
+                }),
+            });
+            showStatus(
+                "wifi-setup-pref-status",
+                data.auto_wifi_setup_hotspot !== false
+                    ? i18nText(
+                        "portal.system.wifi_setup.enabled",
+                        "Automatic Wi-Fi setup hotspot is on."
+                    )
+                    : i18nText(
+                        "portal.system.wifi_setup.disabled",
+                        "Automatic Wi-Fi setup hotspot is off — NetworkManager will keep trying to reconnect."
+                    )
+            );
+        } catch (e) {
+            showStatus("wifi-setup-pref-status", e.message, true);
+            $("auto_wifi_setup_hotspot").checked = !$("auto_wifi_setup_hotspot").checked;
+        }
+    });
+}
+if ($("btn-wifi-start-setup")) {
+    $("btn-wifi-start-setup").addEventListener("click", async () => {
+        clearStatus("wifi-setup-pref-status");
+        try {
+            const data = await jsonFetch("/wifi/start-setup", { method: "POST" });
+            showStatus(
+                "wifi-setup-pref-status",
+                i18nText(
+                    "portal.system.wifi_setup.opening",
+                    data.message || "Opening Wi-Fi setup on the display…"
+                )
+            );
+        } catch (e) {
+            showStatus("wifi-setup-pref-status", e.message, true);
+        }
+    });
 }
 $("btn-repair-update").addEventListener("click", applyRepairConfirmed);
 $("btn-resync-install").addEventListener("click", applyResyncConfirmed);

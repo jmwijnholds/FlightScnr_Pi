@@ -393,7 +393,7 @@ def delete_location(entry_id: str) -> bool:
 
 
 # Favourites this close to Home (degrees, ≈50 m) are the same place — a
-# favourite promoted to Home stays in the list but leaves the swipe cycle.
+# favourite promoted to Home stays in the list but leaves the location cycle.
 _HOME_DUP_EPS_DEG = 0.0005
 
 

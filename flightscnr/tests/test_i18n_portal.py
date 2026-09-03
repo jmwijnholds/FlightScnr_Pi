@@ -255,6 +255,8 @@ def test_dynamic_portal_states_use_semantic_catalog_keys(portal):
         "portal.updates.in_progress",
         "portal.system.confirm_reboot",
         "portal.system.disclaimer_remembered",
+        "portal.system.wifi_setup.enabled",
+        "portal.system.wifi_setup.opening",
         "portal.atc.loading_channels",
         "portal.bluetooth.scanning",
         "portal.export.downloading",

@@ -11,7 +11,9 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+import tempfile
 import unittest
 from unittest import mock
 
@@ -128,6 +130,95 @@ class TestDownStreakHelper(unittest.TestCase):
             self.assertEqual(w.link_down_streak_needed(), 1)
         with mock.patch.object(w, "_LINK_DOWN_STREAK_N", 3):
             self.assertEqual(w.link_down_streak_needed(), 3)
+
+
+class TestAutoHotspotPreference(unittest.TestCase):
+    """Portal auto_wifi_setup_hotspot vs env skip (issue #127)."""
+
+    def setUp(self) -> None:
+        self._env = mock.patch.dict(os.environ, {}, clear=False)
+        self._env.start()
+        os.environ.pop("FLIGHTSCNR_SKIP_WIFI_SETUP", None)
+        os.environ.pop("FLIGHTSCNR_FORCE_WIFI_SETUP", None)
+
+    def tearDown(self) -> None:
+        self._env.stop()
+
+    def test_default_auto_hotspot_enabled(self) -> None:
+        with mock.patch.object(w, "_portal_auto_wifi_setup_hotspot", return_value=True):
+            self.assertTrue(w.auto_hotspot_enabled())
+
+    def test_portal_off_disables_auto_hotspot(self) -> None:
+        with mock.patch.object(w, "_portal_auto_wifi_setup_hotspot", return_value=False):
+            self.assertFalse(w.auto_hotspot_enabled())
+
+    def test_env_skip_disables_auto_hotspot(self) -> None:
+        os.environ["FLIGHTSCNR_SKIP_WIFI_SETUP"] = "1"
+        with mock.patch.object(w, "_portal_auto_wifi_setup_hotspot", return_value=True):
+            self.assertFalse(w.auto_hotspot_enabled())
+            self.assertTrue(w.skip_requested())
+
+    def test_offline_entry_allowed_by_default(self) -> None:
+        with mock.patch.object(w, "_portal_auto_wifi_setup_hotspot", return_value=True):
+            with mock.patch.object(w, "link_up", return_value=False):
+                with mock.patch.object(w, "setup_mode_active", return_value=False):
+                    with mock.patch.object(w, "offline_grace_s", return_value=25.0):
+                        self.assertTrue(w.should_enter_setup_after_offline(30.0))
+                        self.assertFalse(w.should_enter_setup_after_offline(10.0))
+
+    def test_offline_entry_blocked_when_portal_auto_off(self) -> None:
+        with mock.patch.object(w, "_portal_auto_wifi_setup_hotspot", return_value=False):
+            with mock.patch.object(w, "link_up", return_value=False):
+                self.assertFalse(w.should_enter_setup_after_offline(999.0))
+
+    def test_boot_no_saved_still_enters_when_portal_auto_off(self) -> None:
+        with mock.patch.object(w, "_portal_auto_wifi_setup_hotspot", return_value=False):
+            with mock.patch.object(w, "link_up_blocking", return_value=False):
+                with mock.patch.object(w, "saved_client_wifi_names", return_value=[]):
+                    self.assertTrue(w.should_enter_setup_at_boot())
+
+    def test_boot_saved_offline_skipped_when_portal_auto_off(self) -> None:
+        with mock.patch.object(w, "_portal_auto_wifi_setup_hotspot", return_value=False):
+            with mock.patch.object(w, "link_up_blocking", return_value=False):
+                with mock.patch.object(
+                    w, "saved_client_wifi_names", return_value=["HomeWiFi"]
+                ):
+                    with mock.patch.object(w, "_wait_for_client_wifi") as wait:
+                        self.assertFalse(w.should_enter_setup_at_boot())
+                        wait.assert_not_called()
+
+    def test_boot_saved_offline_enters_when_portal_auto_on(self) -> None:
+        with mock.patch.object(w, "_portal_auto_wifi_setup_hotspot", return_value=True):
+            with mock.patch.object(w, "link_up_blocking", return_value=False):
+                with mock.patch.object(
+                    w, "saved_client_wifi_names", return_value=["HomeWiFi"]
+                ):
+                    with mock.patch.object(w, "offline_grace_s", return_value=5.0):
+                        with mock.patch.object(
+                            w, "_wait_for_client_wifi", return_value=False
+                        ):
+                            self.assertTrue(w.should_enter_setup_at_boot())
+
+    def test_env_skip_blocks_boot_even_without_saved(self) -> None:
+        os.environ["FLIGHTSCNR_SKIP_WIFI_SETUP"] = "true"
+        with mock.patch.object(w, "link_up_blocking", return_value=False):
+            with mock.patch.object(w, "saved_client_wifi_names", return_value=[]):
+                self.assertFalse(w.should_enter_setup_at_boot())
+
+    def test_request_enter_blocked_by_env_skip(self) -> None:
+        os.environ["FLIGHTSCNR_SKIP_WIFI_SETUP"] = "1"
+        self.assertFalse(w.request_enter_wifi_setup())
+
+    def test_request_and_consume_enter_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "wifi_setup_enter_request")
+            with mock.patch.object(w, "ENTER_REQUEST_PATH", path):
+                with mock.patch.object(w, "DATA_DIR", tmp):
+                    self.assertTrue(w.request_enter_wifi_setup())
+                    self.assertTrue(os.path.isfile(path))
+                    self.assertTrue(w.consume_enter_wifi_setup_request())
+                    self.assertFalse(os.path.isfile(path))
+                    self.assertFalse(w.consume_enter_wifi_setup_request())
 
 
 if __name__ == "__main__":

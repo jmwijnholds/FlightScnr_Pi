@@ -89,6 +89,13 @@ AIRCRAFT_TAG_ID_LABELS = {
 }
 # Seconds between identity swaps when aircraft_tag_id == both.
 AIRCRAFT_TAG_ID_ALTERNATE_S = 2.5
+# Split-flap board row identity: tail number, marketing flight, or ATC callsign.
+FLIP_BOARD_ID_MODES = ("tail", "flight_number", "callsign")
+FLIP_BOARD_ID_LABELS = {
+    "tail": "Tail number",
+    "flight_number": "Flight number",
+    "callsign": "Callsign",
+}
 # Out-of-range aircraft on the radar rim (PR118).
 RIM_TARGET_STYLES = ("plane", "dot")
 RIM_TARGET_STYLE_LABELS = {
@@ -347,8 +354,8 @@ _defaults = {
     "airport_icon_style": "classic",
     # large | medium | small_paved | small — smallest airport tier drawn.
     "airport_min_size": "small",
-    # Split-flap arrival / departure board for airports in radar view.
-    "show_flip_board": False,
+    # tail | flight_number | callsign — which identity the board flaps show.
+    "flip_board_id": "tail",
     # Airport ground vehicles (GRND/GVEH/… icon category) on the radar.
     "show_ground_vehicles": True,
     # Hide AIS vessels at or below this SOG (knots). 0 = show all speeds.
@@ -465,6 +472,9 @@ _defaults = {
     # Safety disclaimer "Don't show again" version (0 = not remembered).
     # Matches disclaimer_acceptance.CURRENT_VERSION when opted in on-device.
     "safety_disclaimer_version": 0,
+    # When True (default), lost-link / offline grace may open the setup hotspot.
+    # First-boot with no saved Wi-Fi still enters setup even when False.
+    "auto_wifi_setup_hotspot": True,
 }
 
 # Live preview while calibrating facing (not persisted until save).
@@ -854,6 +864,12 @@ def _load():
         migrated = True
     else:
         state["aircraft_tag_id"] = tag_id
+    board_id = str(state.get("flip_board_id") or "").strip().lower()
+    if board_id not in FLIP_BOARD_ID_MODES:
+        state["flip_board_id"] = "tail"
+        migrated = True
+    else:
+        state["flip_board_id"] = board_id
     state["facing_deg"] = _normalize_facing(state.get("facing_deg", 0))
     if "map_style" not in data:
         try:
@@ -1241,7 +1257,8 @@ def _settings_snapshot(state: dict) -> tuple:
         state.get("show_airport_icons"),
         str(state.get("airport_icon_style") or "classic"),
         str(state.get("airport_min_size") or "small"),
-        state.get("show_flip_board"),
+        str(state.get("flip_board_id") or "tail"),
+        bool(state.get("flip_board_sound", True)),
         state.get("show_ground_vehicles"),
         state.get("vessel_min_speed_kt"),
         state.get("aircraft_min_speed_kt"),
@@ -1986,18 +2003,25 @@ def set_show_airport_icons(enabled: bool):
     _save(_state)
 
 
-def show_flip_board() -> bool:
-    return bool(_state.get("show_flip_board", False))
+def flip_board_id() -> str:
+    """Which identity the split-flap rows show: tail, flight number, or callsign."""
+    mode = str(_state.get("flip_board_id") or "").strip().lower()
+    if mode in FLIP_BOARD_ID_MODES:
+        return mode
+    return "tail"
 
 
-def toggle_show_flip_board():
-    _state["show_flip_board"] = not show_flip_board()
+def flip_board_id_label() -> str:
+    return FLIP_BOARD_ID_LABELS.get(flip_board_id(), "Tail number")
+
+
+def set_flip_board_id(mode: str) -> str:
+    raw = str(mode or "").strip().lower()
+    if raw not in FLIP_BOARD_ID_MODES:
+        raw = "tail"
+    _state["flip_board_id"] = raw
     _save(_state)
-
-
-def set_show_flip_board(enabled: bool):
-    _state["show_flip_board"] = bool(enabled)
-    _save(_state)
+    return raw
 
 
 AIRPORT_ICON_STYLES = ("classic", "chart")
@@ -2657,6 +2681,16 @@ def toggle_auto_idle_clock():
 
 def set_auto_idle_clock_enabled(enabled: bool):
     _state["auto_idle_clock"] = bool(enabled)
+    _save(_state)
+
+
+def auto_wifi_setup_hotspot_enabled() -> bool:
+    """True when lost-link may automatically open the Wi-Fi setup hotspot."""
+    return bool(_state.get("auto_wifi_setup_hotspot", True))
+
+
+def set_auto_wifi_setup_hotspot_enabled(enabled: bool) -> None:
+    _state["auto_wifi_setup_hotspot"] = bool(enabled)
     _save(_state)
 
 

@@ -319,6 +319,8 @@ class RoundTouchDisplay:
         self._hud_mute_fired = False
         self._suppress_next_radar_tap = False
 
+        flap_sound.prepare_async()
+
         radar._init_sweep()
         try:
             enter_setup = bool(wifi_setup_util.should_enter_setup_at_boot())
@@ -661,6 +663,27 @@ class RoundTouchDisplay:
 
         Thread(target=_worker, name="wifi-try-saved", daemon=True).start()
 
+    def _tick_wifi_enter_request(self) -> None:
+        """Honor portal/settings cross-process request to open Wi-Fi setup."""
+        if not self._session_unlocked:
+            return
+        if self._wifi_setup_mode or self.screen == SCREEN_WIFI_SETUP:
+            try:
+                wifi_setup_util.clear_enter_wifi_setup_request()
+            except Exception:
+                pass
+            return
+        if self.screen == SCREEN_DISCLAIMER:
+            return
+        try:
+            want = wifi_setup_util.consume_enter_wifi_setup_request()
+        except Exception:
+            logger.debug("Wi-Fi enter-request poll failed", exc_info=True)
+            return
+        if want:
+            self._enter_wifi_setup(reason="manual")
+            self._safe_draw()
+
     def _tick_wifi_link(self) -> None:
         """If client Wi-Fi/ethernet stays down, reopen the setup hotspot after a grace."""
         if (
@@ -669,7 +692,10 @@ class RoundTouchDisplay:
             or self.screen in (SCREEN_WIFI_SETUP, SCREEN_DISCLAIMER)
         ):
             return
-        if wifi_setup_util.skip_requested():
+        if (
+            not wifi_setup_util.auto_hotspot_enabled()
+            and not wifi_setup_util.force_requested()
+        ):
             self._wifi_offline_since = None
             self._wifi_down_streak = 0
             return
@@ -791,7 +817,10 @@ class RoundTouchDisplay:
             if mode in ("marine", "both") and self._ais_vessels:
                 flights.extend(self._ais_vessels)
             self.flights = flights
-            self._update_flip_board(flights)
+            # Board ignores MIN_HEIGHT so approaches below the radar floor
+            # still register; radar keeps the filtered peek_data() list.
+            board_flights = list(self.overhead.peek_data_unfiltered() or [])
+            self._update_flip_board(board_flights)
             if self.screen == SCREEN_FLIGHT:
                 self._sync_selected_flight_index()
         except Exception:
@@ -1450,6 +1479,9 @@ class RoundTouchDisplay:
     # Movement detection needs a steady cadence, not every draw. adsb.fi
     # refreshes about every 5s, so sampling at 4s never misses a snapshot.
     _FLIP_BOARD_SAMPLE_S = 4.0
+    # In-progress approach tracks must hit disk even when nothing has landed
+    # yet — otherwise a kiosk restart drops every aircraft already on final.
+    _FLIP_BOARD_TRACK_SAVE_S = 15.0
 
     def _update_flip_board(self, flights: list) -> None:
         """Fold the current radar snapshot into the arrival / departure board.
@@ -1472,12 +1504,22 @@ class RoundTouchDisplay:
             if not airports:
                 return
             events = flip_board_data.tracker().observe(flights, airports, now)
-            if events and self.screen == SCREEN_FLIP_BOARD:
+            identity_changed = bool(flip_board_data.tracker().identity_changed)
+            if self.screen == SCREEN_FLIP_BOARD and (events or identity_changed):
+                # New rows, or older tail-only rows that just got a callsign
+                # from the live feed, should flap to the selected identity.
+                if events:
+                    flap_sound.reset()
+                self._invalidate_timeout_content_cache()
                 self._safe_draw()
-            # Write only when something actually landed or left. A timer would
-            # rewrite an unchanged file every couple of minutes, which is
-            # hundreds of pointless SD writes a day on a quiet field.
-            if events:
+            # Write when something landed or left, when we filled airline
+            # ids onto a row that was stored as tail-only, or on a slow
+            # checkpoint so pending approaches survive a restart.
+            if (
+                events
+                or identity_changed
+                or now - self._flip_board_saved_at >= self._FLIP_BOARD_TRACK_SAVE_S
+            ):
                 self._flip_board_saved_at = now
                 flip_board_data.save()
         except Exception:
@@ -1662,6 +1704,9 @@ class RoundTouchDisplay:
         self._close_atc_picker()
         self._invalidate_timeout_content_cache()
         previous = self.screen
+        if self.screen == SCREEN_FLIP_BOARD:
+            flip_board.close_id_picker()
+            aircraft_tile.dismiss()
         if self.screen in (SCREEN_TRACKED, SCREEN_LIVE):
             tracked.reset_marquee()
         self._radar_visible_since = time.time()
@@ -1726,6 +1771,7 @@ class RoundTouchDisplay:
                 # The tile belongs to the board; leaving closes it, so it does
                 # not reappear over a board the user comes back to later.
                 aircraft_tile.dismiss()
+                flip_board.close_id_picker()
             if self.screen in (SCREEN_TRACKED, SCREEN_LIVE):
                 tracked.reset_marquee()
             self._scroll.reset()
@@ -1852,8 +1898,6 @@ class RoundTouchDisplay:
 
             settings.toggle_show_airport_icons()
             airport_overlay.invalidate()
-        elif action == "flip_board":
-            settings.toggle_show_flip_board()
         elif action == "flip_board_sound":
             settings.toggle_flip_board_sound_enabled()
         elif action == "ground_vehicles":
@@ -4094,9 +4138,11 @@ class RoundTouchDisplay:
 
     def _breadcrumb_tapped(self, x: int, y: int) -> bool:
         """Screen-aware breadcrumb hit: curved band on curved-chrome screens."""
+        if self.screen == SCREEN_FLIP_BOARD:
+            return False
         if self.screen in (
             SCREEN_SETTINGS, SCREEN_DETAILS, SCREEN_FLIGHT, SCREEN_FIRE, SCREEN_QUAKE,
-            SCREEN_CLOCK, SCREEN_FLIP_BOARD, SCREEN_FORECAST, SCREEN_UPDATE_NOTES,
+            SCREEN_CLOCK, SCREEN_FORECAST, SCREEN_UPDATE_NOTES,
             SCREEN_TRACKED,
         ):
             return nav.tap_breadcrumb_curved(x, y)
@@ -4195,7 +4241,15 @@ class RoundTouchDisplay:
                 self._execute_system_action(action)
 
     def _execute_system_action(self, action: str):
-        """Run reboot / shutdown / app restart after confirmation."""
+        """Run reboot / shutdown / app restart / Wi-Fi setup after confirmation."""
+        if action == "wifi_setup":
+            if wifi_setup_util.skip_requested():
+                logger.info("Start Wi-Fi setup ignored — FLIGHTSCNR_SKIP_WIFI_SETUP set")
+                return
+            self._enter_wifi_setup(reason="manual-settings")
+            self._safe_draw()
+            return
+
         from utilities import system_control
 
         if action == "reboot":
@@ -4311,8 +4365,8 @@ class RoundTouchDisplay:
         ):
             return
 
-        # Live ← Tracked ← Radar: swipe right moves leftward; swipe left returns.
-        # On radar, swipe left also cycles favorite locations (Home → saved → Home).
+        # Live ← Tracked ← Radar → Flip board: swipe right moves leftward;
+        # swipe left from radar opens the arrivals board when that layer is on.
         # Short flicks still pick aircraft / fires like a tap.
         if swipe and self.screen == SCREEN_RADAR and radial_menu.is_open():
             radial_menu.close()
@@ -4329,9 +4383,14 @@ class RoundTouchDisplay:
                 self._safe_draw()
         elif swipe == input_handler.SWIPE_LEFT and self.screen == SCREEN_RADAR:
             if self._radar_swipe_committed(swipe_start, swipe_end):
-                if self._cycle_favourite_location():
-                    self._note_activity()
-                    self._safe_draw()
+                # Every row turns over on arrival, the way a real board
+                # catches up. A deliberate swipe ends idle-clock so
+                # nothing pulls the user back to radar behind their back.
+                flip_board.restart_animation()
+                self._auto_idle_clock = False
+                self._open_screen(SCREEN_FLIP_BOARD)
+                self._note_activity()
+                self._safe_draw()
             elif self._open_radar_swipe_target(swipe_start, swipe_end):
                 self._safe_draw()
         elif swipe == input_handler.SWIPE_RIGHT and self.screen == SCREEN_TRACKED:
@@ -4363,22 +4422,9 @@ class RoundTouchDisplay:
         elif swipe == input_handler.SWIPE_LEFT and self.screen == SCREEN_FLIEGER_CLOCK:
             self._open_screen(SCREEN_MOON)
             self._safe_draw()
-        elif (
-            swipe == input_handler.SWIPE_LEFT
-            and self.screen == SCREEN_MOON
-            and settings.show_flip_board()
-        ):
-            # Every row turns over on arrival, the way a real board catches up.
-            flip_board.restart_animation()
-            # A deliberate swipe ends the idle-clock state, so nothing pulls
-            # the user back to radar behind their back.
-            self._auto_idle_clock = False
-            self._open_screen(SCREEN_FLIP_BOARD)
-            self._note_activity()
-            self._safe_draw()
         elif swipe == input_handler.SWIPE_RIGHT and self.screen == SCREEN_FLIP_BOARD:
             flip_board.clear_pinned()
-            self._open_screen(SCREEN_MOON)
+            self._return_to_radar()
             self._safe_draw()
         elif swipe == input_handler.SWIPE_RIGHT and self.screen == SCREEN_MOON:
             self._open_screen(SCREEN_FLIEGER_CLOCK)
@@ -4417,7 +4463,7 @@ class RoundTouchDisplay:
             self._return_to_radar()
             self._safe_draw()
         elif swipe == input_handler.SWIPE_LEFT and self.screen == SCREEN_DETAILS:
-            # Settings sits beside About; radar swipe-left cycles favorites.
+            # Settings sits beside About.
             self._open_screen(SCREEN_SETTINGS)
             self.settings_page = info.PAGE_MAIN
             self._note_activity()
@@ -4733,9 +4779,21 @@ class RoundTouchDisplay:
                 self._note_activity()
                 self._safe_draw()
                 return
+            if flip_board.id_picker_open():
+                choice = flip_board.id_picker_hit(tap[0], tap[1])
+                if choice in settings.FLIP_BOARD_ID_MODES:
+                    settings.set_flip_board_id(choice)
+                    flip_board.close_id_picker()
+                    flip_board.restart_animation(keep_ident=True)
+                else:
+                    flip_board.close_id_picker()
+                self._note_activity()
+                self._safe_draw()
+                return
             action = flip_board.tap_footer_action(tap[0], tap[1])
             if action == "radar":
                 flip_board.clear_pinned()
+                flip_board.close_id_picker()
                 self._return_to_radar()
                 self._safe_draw()
             elif action == "pin":
@@ -4748,6 +4806,10 @@ class RoundTouchDisplay:
                 self._safe_draw()
             elif action == "next":
                 flip_board.step_airport(1)
+                self._note_activity()
+                self._safe_draw()
+            elif action == "board_id":
+                flip_board.open_id_picker()
                 self._note_activity()
                 self._safe_draw()
             else:
@@ -4924,7 +4986,10 @@ class RoundTouchDisplay:
         if self.screen == SCREEN_FLIP_BOARD and flip_board.is_animating(now):
             # Split-flap needs real frames; the 2s clock cadence would show
             # two stills instead of tiles turning.
-            flap_sound.tick(active_tiles=flip_board.turning_tile_count(now), now=now)
+            flap_sound.tick(
+                duration_s=flip_board.flap_run_duration_s(now),
+                now=now,
+            )
             if (now - self._last_clock_draw) >= (theme.SWEEP_FRAME_MS / 1000.0):
                 self._last_clock_draw = now
                 self._safe_draw()
@@ -5827,7 +5892,13 @@ class RoundTouchDisplay:
                         # a ~2s beam hitch. Static screens still need a refresh,
                         # but NOT while the timeout ring owns the framebuffer
                         # (ATC/settings countdown) — that was the smooth→stuck→jump loop.
-                        ring_owns = self._timeout_remaining_fraction() is not None
+                        # The arrivals board is the exception: new rows have to
+                        # flap in while that ring is showing, or the board looks
+                        # frozen at the last landing.
+                        ring_owns = (
+                            self._timeout_remaining_fraction() is not None
+                            and self.screen != SCREEN_FLIP_BOARD
+                        )
                         if ring_owns:
                             pass
                         elif self.screen in (SCREEN_TRACKED, SCREEN_LIVE):
@@ -5910,6 +5981,7 @@ class RoundTouchDisplay:
 
                 # Re-open captive setup if known Wi-Fi stays down past the grace window.
                 self._tick_wifi_link()
+                self._tick_wifi_enter_request()
 
                 if self._fatal_error:
                     # Don't freeze forever during Wi-Fi setup if a draw glitch set fatal

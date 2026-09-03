@@ -9,13 +9,8 @@
 
 """Split-flap clatter for the arrivals board.
 
-The board turns five rows of ten tiles at 22 flaps a second. One sound per
-flap is roughly 1100 plays a second, so the clatter is rate limited and the
-density follows how many tiles are actually turning.
-
-Playback goes through pygame.mixer with pre-built Sound objects. The
-existing SFX path spawns a subprocess per sound, which is fine for one
-chime an hour and would fork hundreds of processes here.
+Playback is FlipOff's recorded transition, truncated to the last flap,
+as one PipeWire play.
 """
 
 import os
@@ -35,81 +30,108 @@ import pytest  # noqa: E402
 from display.round_touch import flap_sound  # noqa: E402
 
 
-class TestTheClatterBudget:
-    """Rate limiting, kept separate from playback so it is testable."""
+@pytest.fixture(autouse=True)
+def _no_real_pipewire_playback(monkeypatch):
+    """Do not pw-play from unit tests."""
+    from display.round_touch import hourly_chime
 
-    def test_nothing_turning_makes_no_sound(self):
-        budget = flap_sound.ClickBudget()
-        assert budget.due(active_tiles=0, dt=1.0) == 0
-
-    def test_no_time_passing_makes_no_sound(self):
-        budget = flap_sound.ClickBudget()
-        assert budget.due(active_tiles=30, dt=0.0) == 0
-
-    def test_more_tiles_turning_means_denser_clatter(self):
-        light = flap_sound.ClickBudget().due(active_tiles=2, dt=0.2)
-        heavy = flap_sound.ClickBudget().due(active_tiles=40, dt=0.2)
-        assert heavy > light
-
-    def test_it_never_exceeds_the_cap(self):
-        """The whole point: 50 tiles at 22 flaps/s must not be 1100 plays/s."""
-        budget = flap_sound.ClickBudget()
-        played = 0
-        for _ in range(60):  # one second at 60fps
-            played += budget.due(active_tiles=50, dt=1 / 60)
-        assert played <= flap_sound.MAX_CLICKS_PER_S
-
-    def test_a_single_frame_cannot_flood_the_channels(self):
-        budget = flap_sound.ClickBudget()
-        assert budget.due(active_tiles=50, dt=5.0) <= flap_sound.MAX_PER_FRAME
-
-    def test_fractional_credit_is_not_lost(self):
-        """Small per-frame credit must still add up to audible clicks."""
-        budget = flap_sound.ClickBudget()
-        played = sum(budget.due(active_tiles=6, dt=1 / 60) for _ in range(60))
-        assert played > 0
-
-    def test_a_long_stall_does_not_bank_a_burst(self):
-        """A frame hitch must not pay out as one machine-gun burst."""
-        budget = flap_sound.ClickBudget()
-        budget.due(active_tiles=50, dt=10.0)
-        assert budget.due(active_tiles=50, dt=1 / 60) <= flap_sound.MAX_PER_FRAME
+    monkeypatch.setattr(hourly_chime, "play_file_async", lambda *a, **k: None)
+    monkeypatch.setattr(flap_sound, "_start_player", lambda *a, **k: None)
 
 
-class TestAFullBoardIsLouder:
-    """A whole board turning over should sound like more than one row."""
+class TestTheFlipOffClip:
+    def test_the_bundled_clip_is_the_flipoff_recording(self):
+        path = flap_sound.clip_path()
+        assert path and os.path.isfile(path)
+        assert path.endswith("flap_transition.mp3")
+        length = flap_sound.clip_duration_s()
+        assert 3.0 < length < 5.0
 
-    def test_gain_rises_with_the_number_of_tiles(self):
-        one_row = flap_sound.density_gain(6)
-        full_board = flap_sound.density_gain(50)
-        assert full_board > one_row
+    def test_more_flaps_keep_more_of_the_clip(self):
+        short = flap_sound.burst_duration_s([0.0])
+        longer = flap_sound.burst_duration_s([0.0, 0.05, 0.10, 0.40])
+        assert short == pytest.approx(flap_sound.SETTLE_S)
+        assert longer > short
+        assert longer == pytest.approx(0.40 + flap_sound.SETTLE_S)
 
-    def test_gain_never_exceeds_full_scale(self):
-        assert flap_sound.density_gain(500) <= 1.0
+    def test_the_cut_never_runs_past_the_recording(self):
+        clip = flap_sound.clip_duration_s()
+        assert flap_sound.burst_duration_s(duration_s=clip + 10) == pytest.approx(clip)
 
-    def test_a_single_tile_is_still_audible(self):
-        assert flap_sound.density_gain(1) > 0.2
+    def test_empty_offsets_make_no_burst(self):
+        assert flap_sound.burst_duration_s([]) == 0.0
+        assert flap_sound.burst_duration_s(duration_s=0.0, active_tiles=0) == 0.0
 
-    def test_a_full_board_is_near_full_scale(self):
-        assert flap_sound.density_gain(50) > 0.9
+    def test_attribution_credits_flipoff(self):
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "assets",
+            "FLAP_TRANSITION_ATTRIBUTION.md",
+        )
+        text = open(path, encoding="utf-8").read()
+        assert "magnum6actual/flipoff" in text
+        assert "flap_transition.mp3" in text
+        assert "truncated" in text.lower() or "cut" in text.lower()
+        assert "MIT" in text
 
-    def test_a_full_board_clatters_faster_than_one_row(self):
-        def per_second(tiles):
-            budget = flap_sound.ClickBudget()
-            return sum(budget.due(active_tiles=tiles, dt=1 / 60) for _ in range(60))
+    def test_burst_starts_the_prepared_wav(self, monkeypatch):
+        started = []
 
-        assert per_second(50) > per_second(6)
+        def fake_start(path, *a, **k):
+            started.append((path, k.get("start_s"), k.get("end_s")))
+
+        monkeypatch.setattr(flap_sound, "_start_player", fake_start)
+        assert flap_sound.prepare()
+        flap_sound._play_burst(0.6)
+        assert started
+        assert os.path.basename(started[0][0]) == "flap_clip.wav"
+        assert started[0][1] is None
+        import wave
+
+        with wave.open(started[0][0], "rb") as fh:
+            seconds = fh.getnframes() / float(fh.getframerate() or 1)
+        assert 0.45 <= seconds <= 0.80
+
+    def test_the_clip_starts_at_the_first_loud_flap(self):
+        assert 0.15 <= flap_sound.CLIP_START_S <= 0.18
+
+    def test_a_prepared_slice_does_not_wait_on_ffmpeg(self):
+        import time
+
+        assert flap_sound.prepare()
+        t0 = time.perf_counter()
+        path = flap_sound._write_slice(0.6)
+        elapsed = time.perf_counter() - t0
+        assert path and path.endswith("flap_clip.wav")
+        assert elapsed < 0.08
+
+    def test_play_does_not_block_on_ffmpeg(self, monkeypatch):
+        """The first flap must not wait for a 0.4s MP3 decode."""
+        started = []
+        monkeypatch.setattr(flap_sound, "prepared_path", lambda: None)
+
+        def boom(*a, **k):
+            raise AssertionError("ffmpeg must not run at play time")
+
+        monkeypatch.setattr(flap_sound.subprocess, "run", boom)
+        monkeypatch.setattr(
+            flap_sound,
+            "_start_player",
+            lambda path, **k: started.append((os.path.basename(path), k)),
+        )
+        flap_sound._play_burst(0.6)
+        assert started
+        assert started[0][0] == "flap_transition.mp3"
+        assert started[0][1].get("start_s") == pytest.approx(flap_sound.CLIP_START_S)
 
 
 class TestWhenItStaysSilent:
     def test_master_mute_silences_it(self, monkeypatch):
-        monkeypatch.setattr(flap_sound.settings, "show_flip_board", lambda: True)
         monkeypatch.setattr(flap_sound.settings, "master_sound_enabled", lambda: False)
         monkeypatch.setattr(flap_sound.settings, "flip_board_sound_enabled", lambda: True)
         assert flap_sound.enabled() is False
 
     def test_its_own_setting_silences_it(self, monkeypatch):
-        monkeypatch.setattr(flap_sound.settings, "show_flip_board", lambda: True)
         monkeypatch.setattr(flap_sound.settings, "master_sound_enabled", lambda: True)
         monkeypatch.setattr(
             flap_sound.settings, "flip_board_sound_enabled", lambda: False
@@ -117,7 +139,6 @@ class TestWhenItStaysSilent:
         assert flap_sound.enabled() is False
 
     def test_off_hours_silences_it(self, monkeypatch):
-        monkeypatch.setattr(flap_sound.settings, "show_flip_board", lambda: True)
         monkeypatch.setattr(flap_sound.settings, "master_sound_enabled", lambda: True)
         monkeypatch.setattr(flap_sound.settings, "flip_board_sound_enabled", lambda: True)
         monkeypatch.setattr(flap_sound, "_in_off_hours", lambda: True)
@@ -126,126 +147,88 @@ class TestWhenItStaysSilent:
     def test_it_plays_when_nothing_objects(self, monkeypatch):
         monkeypatch.setattr(flap_sound.settings, "master_sound_enabled", lambda: True)
         monkeypatch.setattr(flap_sound.settings, "flip_board_sound_enabled", lambda: True)
-        monkeypatch.setattr(flap_sound.settings, "show_flip_board", lambda: True)
         monkeypatch.setattr(flap_sound, "_in_off_hours", lambda: False)
         assert flap_sound.enabled() is True
 
-    def test_a_board_switched_off_is_silent(self, monkeypatch):
-        """The clatter belongs to the board, so it follows the board switch."""
-        monkeypatch.setattr(flap_sound.settings, "master_sound_enabled", lambda: True)
-        monkeypatch.setattr(flap_sound.settings, "flip_board_sound_enabled", lambda: True)
-        monkeypatch.setattr(flap_sound.settings, "show_flip_board", lambda: False)
-        monkeypatch.setattr(flap_sound, "_in_off_hours", lambda: False)
-        assert flap_sound.enabled() is False
-
     def test_atc_does_not_silence_it(self, monkeypatch):
-        """PipeWire mixes them; the clicks are short enough not to mask a call."""
+        """PipeWire mixes them; the clip is short enough not to mask a call."""
         import inspect
 
         assert "atc" not in inspect.getsource(flap_sound.enabled).lower()
 
 
-class TestItNeverForksAProcess:
-    def test_it_does_not_use_the_subprocess_sfx_path(self):
-        """play_file_async spawns pw-play/mpv per sound. Not at 16 a second.
+class TestItNeverForksPerFlap:
+    def test_the_board_turn_spawns_one_player(self):
+        """ffmpeg may decode once at prepare; the board turn does not Popen.
 
         Checked against the parsed module rather than its text, so the
         docstring explaining this does not satisfy its own test.
         """
-        import ast
         import inspect
+        import pathlib
 
-        tree = ast.parse(inspect.getsource(flap_sound))
-        called = {
-            node.func.attr if isinstance(node.func, ast.Attribute) else
-            getattr(node.func, "id", "")
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-        }
-        assert "play_file_async" not in called
-        assert "Popen" not in called
-        assert "run" not in called
-
-        imported = {
-            alias.name.split(".")[0]
-            for node in ast.walk(tree)
-            if isinstance(node, (ast.Import, ast.ImportFrom))
-            for alias in node.names
-        }
-        imported |= {
-            node.module.split(".")[0]
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom) and node.module
-        }
-        assert "subprocess" not in imported
-        assert "os" not in imported, "no process spawning of any kind"
-
-
-class TestTheClickBank:
-    def test_it_builds_several_variants(self, monkeypatch):
-        """One identical click repeated reads as a metronome, not a board."""
-        samples = flap_sound.build_click_samples()
-        assert len(samples) >= 4
-
-    def test_the_variants_differ(self):
-        samples = flap_sound.build_click_samples()
-        assert samples[0].tobytes() != samples[1].tobytes()
-
-    def test_a_click_is_short(self):
-        """Long enough to hear, short enough to overlap at 16 a second."""
-        samples = flap_sound.build_click_samples()
-        for sample in samples:
-            seconds = len(sample) / flap_sound.SAMPLE_RATE
-            assert 0.002 <= seconds <= 0.05
-
-    def test_it_is_stereo_16_bit(self):
-        sample = flap_sound.build_click_samples()[0]
-        assert sample.dtype.name == "int16"
-        assert sample.shape[1] == 2
-
-    def test_it_does_not_clip(self):
-        for sample in flap_sound.build_click_samples():
-            assert abs(int(sample.max())) < 32768
-            assert abs(int(sample.min())) <= 32768
+        source = pathlib.Path(flap_sound.__file__).read_text(encoding="utf-8")
+        assert source.count("Popen") == 1
+        tick_src = inspect.getsource(flap_sound.tick)
+        burst_src = inspect.getsource(flap_sound._play_burst)
+        assert "Popen" not in tick_src
+        assert "_start_player" in burst_src
+        assert "play_file_async" not in tick_src
 
 
 class TestTicking:
     def test_a_silent_board_plays_nothing(self, monkeypatch):
         played = []
         monkeypatch.setattr(flap_sound, "enabled", lambda: False)
-        monkeypatch.setattr(flap_sound, "_play_click", lambda tiles=1: played.append(tiles))
+        monkeypatch.setattr(flap_sound, "_play_burst", lambda dur: played.append(dur))
         flap_sound.reset()
         flap_sound.tick(active_tiles=40, now=1000.0)
         flap_sound.tick(active_tiles=40, now=1000.5)
         assert played == []
 
-    def test_a_turning_board_clatters(self, monkeypatch):
+    def test_a_turning_board_clatters_once(self, monkeypatch):
         played = []
         monkeypatch.setattr(flap_sound, "enabled", lambda: True)
-        monkeypatch.setattr(flap_sound, "_ready", lambda: True)
-        monkeypatch.setattr(flap_sound, "_play_click", lambda tiles=1: played.append(tiles))
+        monkeypatch.setattr(flap_sound, "_play_burst", lambda dur: played.append(dur))
         flap_sound.reset()
         flap_sound.tick(active_tiles=40, now=1000.0)
         for step in range(1, 31):
             flap_sound.tick(active_tiles=40, now=1000.0 + step / 60)
-        assert played, "the board turned in silence"
+        assert len(played) == 1
+        assert played[0] == pytest.approx(39 * 0.05 + flap_sound.SETTLE_S)
 
-    def test_the_first_tick_does_not_fire_on_a_stale_clock(self, monkeypatch):
-        """The gap since the last board is not a gap in the animation."""
+    def test_the_first_tick_plays_the_burst(self, monkeypatch):
         played = []
         monkeypatch.setattr(flap_sound, "enabled", lambda: True)
-        monkeypatch.setattr(flap_sound, "_ready", lambda: True)
-        monkeypatch.setattr(flap_sound, "_play_click", lambda tiles=1: played.append(tiles))
+        monkeypatch.setattr(flap_sound, "_play_burst", lambda dur: played.append(dur))
         flap_sound.reset()
-        flap_sound.tick(active_tiles=50, now=9999.0)
-        assert len(played) <= flap_sound.MAX_PER_FRAME
+        flap_sound.tick(duration_s=1.2, now=9999.0)
+        assert played == [pytest.approx(1.2)]
 
-    def test_no_audio_device_is_not_an_error(self, monkeypatch):
+    def test_reset_arms_another_burst(self, monkeypatch):
+        played = []
         monkeypatch.setattr(flap_sound, "enabled", lambda: True)
-        monkeypatch.setattr(flap_sound, "_ready", lambda: False)
+        monkeypatch.setattr(flap_sound, "_play_burst", lambda dur: played.append(dur))
         flap_sound.reset()
-        flap_sound.tick(active_tiles=40, now=1000.0)
-        flap_sound.tick(active_tiles=40, now=1000.5)
+        flap_sound.tick(duration_s=0.8, now=1000.0)
+        flap_sound.reset()
+        flap_sound.tick(duration_s=0.8, now=2000.0)
+        assert played == [pytest.approx(0.8), pytest.approx(0.8)]
+
+    def test_explicit_offsets_set_the_cut(self, monkeypatch):
+        played = []
+        monkeypatch.setattr(flap_sound, "enabled", lambda: True)
+        monkeypatch.setattr(flap_sound, "_play_burst", lambda dur: played.append(dur))
+        flap_sound.reset()
+        flap_sound.tick(offsets=[0.0, 0.08, 0.16], now=1000.0)
+        assert played == [pytest.approx(0.16 + flap_sound.SETTLE_S)]
+
+    def test_no_clip_is_not_an_error(self, monkeypatch):
+        monkeypatch.setattr(flap_sound, "enabled", lambda: True)
+        monkeypatch.setattr(flap_sound, "clip_path", lambda: None)
+        flap_sound.reset()
+        flap_sound.tick(duration_s=1.0, now=1000.0)
+        flap_sound.tick(duration_s=1.0, now=1000.5)
 
 
 class TestCountingTurningTiles:
@@ -294,6 +277,38 @@ class TestCountingTurningTiles:
         board._flap_text(1, "N73898", now=1000.0)
         assert board.turning_tile_count(now=1000.0) > one
 
+    def test_click_offsets_match_turning_tiles(self):
+        board = self._board()
+        board._flap_text(0, "N24   ", now=1000.0)
+        offs = board.flap_click_offsets(now=1000.0)
+        assert len(offs) == 3
+        assert offs[0] == 0.0
+        assert offs[1] == pytest.approx(0.05)
+        assert offs[2] == pytest.approx(0.10)
+
+    def test_settled_tiles_add_no_offsets(self):
+        board = self._board()
+        board._flap_text(0, "N2425M", now=1000.0)
+        assert board.flap_click_offsets(now=1000.0 + 60) == []
+
+    def test_run_duration_matches_the_last_flap(self):
+        board = self._board()
+        board._flap_text(0, "N24   ", now=1000.0)
+        # Three occupied columns: last starts at 0.10 and settles at 0.55.
+        assert board.flap_run_duration_s(now=1000.0) == pytest.approx(0.10 + 0.45)
+
+    def test_a_settled_board_has_no_run_duration(self):
+        board = self._board()
+        board._flap_text(0, "N2425M", now=1000.0)
+        assert board.flap_run_duration_s(now=1000.0 + 60) == 0.0
+
+    def test_more_rows_keep_the_clip_going_longer(self):
+        board = self._board()
+        board._flap_text(0, "N2425M", now=1000.0)
+        one = board.flap_run_duration_s(now=1000.0)
+        board._flap_text(1, "N73898", now=1000.0)
+        assert board.flap_run_duration_s(now=1000.0) > one
+
 
 class TestWiring:
     def test_the_board_animation_drives_the_clatter(self):
@@ -303,6 +318,11 @@ class TestWiring:
 
         source = inspect.getsource(app_mod.RoundTouchDisplay._tick_clock)
         assert "flap_sound.tick" in source
+        from display.round_touch.screens import flip_board
+
+        assert "flap_sound.tick" in inspect.getsource(flip_board.draw_flip_board)
+        assert "_prime_flaps" in inspect.getsource(flip_board.draw_flip_board)
+        assert "prepare_async" in inspect.getsource(app_mod.RoundTouchDisplay.__init__)
 
     def test_restarting_the_animation_resets_the_clock(self):
         import inspect

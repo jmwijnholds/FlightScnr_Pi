@@ -28,9 +28,10 @@ infers movements from track lifecycle plus vertical rate:
 Both rules need only lat/lon, altitude, and vertical rate, so the board works
 on the free adsb.fi feed with no API key. Nothing here does network I/O.
 
-Airport elevation is used when the airport record carries ``elevation_ft`` and
-is treated as sea level otherwise, so a high-elevation field degrades to a
-slightly generous altitude gate rather than to silence.
+Airport elevation is used when the airport record carries ``elevation_ft``.
+Caches built before that field was parsed have no value: guessing sea level
+would silently misjudge every elevated field, so those airports are skipped
+until the cache rebuilds.
 """
 
 from __future__ import annotations
@@ -75,6 +76,8 @@ DEPARTURE_RADIUS_NM = 3.0
 DEPARTURE_CEILING_AGL_FT = 2500
 # Plenty of aircraft never transmit a vertical rate — N73898 reports none —
 # so derive one from consecutive altitudes when the field is missing.
+# The floor is altitude change, not a per-sample delta: the display samples
+# about every 4s, and a 700 fpm descent only moves ~50 ft in that time.
 DERIVED_RATE_MIN_FT = 200
 DERIVED_RATE_MAX_GAP_S = 60.0
 # A repeat inside this window means the track was rebuilt mid-movement, not
@@ -90,7 +93,7 @@ REPEAT_WINDOW_S = 120.0
 # quiet, and a ground station usually cannot see it on the runway.
 TOUCHDOWN_AGL_FT = 100
 # Rows the board keeps per airport per direction.
-MAX_ROWS = 5
+MAX_ROWS = 7
 # Forget movements older than this.
 EVENT_TTL_S = 12 * 3600.0
 # No contact for this long ends a track. adsb.fi refreshes every ~5s, so this
@@ -122,11 +125,94 @@ def flight_label(flight: dict) -> str:
     label for the GA traffic that dominates small fields, so it wins when the
     feed supplies it; airline callsigns fall through to the callsign field.
     """
-    for key in ("registration", "callsign", "flight_number", "icao_hex"):
-        value = str(flight.get(key) or "").strip().upper()
+    ids = identities_from_flight(flight)
+    for key in ("tail", "callsign", "flight_number", "icao_hex"):
+        value = ids.get(key) or ""
         if value:
-            return value.replace(" ", "")
+            return value
     return ""
+
+
+def _clean_ident(value: object) -> str:
+    return str(value or "").strip().upper().replace(" ", "")
+
+
+def _is_tail_ident(value: object, tail: str = "") -> bool:
+    """True when ``value`` is empty, the N-number, or otherwise not an airline id."""
+    raw = _clean_ident(value)
+    if not raw:
+        return True
+    if tail and raw == _clean_ident(tail):
+        return True
+    # US registrations: N12345, N298SY. Airline ids never look like this.
+    if len(raw) >= 2 and raw[0] == "N" and raw[1].isdigit():
+        return True
+    return False
+
+
+def _airline_ident(value: object, tail: str = "") -> str:
+    """Callsign or flight number worth showing, else empty."""
+    raw = _clean_ident(value)
+    return "" if _is_tail_ident(raw, tail) else raw
+
+
+def identities_from_flight(flight: dict) -> dict[str, str]:
+    """Tail, ATC callsign, and marketing flight number from one snapshot."""
+    tail = _clean_ident(flight.get("registration"))
+    callsign = _clean_ident(flight.get("callsign"))
+    flight_number = _clean_ident(
+        flight.get("flight_number") or flight.get("number")
+    )
+    if not _airline_ident(flight_number, tail):
+        flight_number = ""
+        try:
+            from utilities.airline_branding import display_flight_id_for_flight
+
+            derived = _clean_ident(display_flight_id_for_flight(flight))
+            if derived in ("—", "-", "–"):
+                derived = ""
+            # Keep UAL2100 / UA2100 / SKW3736. Drop N-numbers copied out of
+            # the ADS-B flight field — those are the tail, not a flight id.
+            flight_number = _airline_ident(derived, tail)
+        except Exception:
+            flight_number = ""
+    return {
+        "tail": tail,
+        "callsign": callsign,
+        "flight_number": flight_number,
+        "icao_hex": _clean_ident(flight.get("icao_hex")),
+    }
+
+
+BOARD_ID_MODES = ("tail", "flight_number", "callsign")
+
+
+def board_label(event: dict | None, mode: str = "tail") -> str:
+    """Identity to flap for one stored movement, with fallbacks.
+
+    Callsign / flight-number modes use the airline ident when we have one and
+    the tail only when that ident was never transmitted (typical GA).
+    """
+    if not event:
+        return ""
+    tail = _clean_ident(event.get("tail"))
+    if not tail and _is_tail_ident(event.get("id")):
+        tail = _clean_ident(event.get("id"))
+    if not tail:
+        tail = _clean_ident(event.get("id"))
+    raw = str(mode or "tail").strip().lower()
+    if raw == "callsign":
+        return _airline_ident(event.get("callsign"), tail) or tail or _clean_ident(
+            event.get("hex")
+        )
+    if raw == "flight_number":
+        return (
+            _airline_ident(event.get("flight_number"), tail)
+            or _airline_ident(event.get("callsign"), tail)
+            or tail
+            or _clean_ident(event.get("hex"))
+        )
+    return tail or _clean_ident(event.get("id")) or _clean_ident(event.get("hex"))
 
 
 def track_key(flight: dict) -> str:
@@ -250,6 +336,11 @@ class FlipBoardTracker:
         self._boards: dict[str, dict[str, list[dict]]] = {}
         # track key -> live state
         self._tracks: dict[str, dict[str, Any]] = {}
+        # icao hex -> latest tail/callsign/flight_number seen live. Rows
+        # recorded before those fields existed still have the hex, so a later
+        # snapshot can fill them in.
+        self._idents: dict[str, dict[str, str]] = {}
+        self.identity_changed = False
 
     # -- observation ------------------------------------------------------
 
@@ -264,6 +355,7 @@ class FlipBoardTracker:
         airport_list = [a for a in (airports or []) if a.get("ident")]
         new_events: list[dict] = []
         with self._lock:
+            self.identity_changed = False
             present = self._observe_present(flights, airport_list, now, new_events)
             self._retire_gone(present, now, new_events)
             self._expire(now)
@@ -322,10 +414,24 @@ class FlipBoardTracker:
         if not vs and not on_ground:
             vs = self._derived_rate(track, alt, now)
         if not on_ground:
-            track["alt_at"] = now
-            track["alt_ft"] = alt
+            # Hold the altitude baseline until it has moved enough to infer
+            # a rate. Updating it every sample made a 4s cadence never reach
+            # DERIVED_RATE_MIN_FT, so aircraft that omit baro_rate never
+            # armed a pending arrival.
+            prev_alt = track.get("alt_ft")
+            prev_at = float(track.get("alt_at") or 0.0)
+            moved = prev_alt is None or abs(int(alt) - int(prev_alt)) >= DERIVED_RATE_MIN_FT
+            aged = not prev_at or (now - prev_at) >= DERIVED_RATE_MAX_GAP_S
+            if moved or aged:
+                track["alt_at"] = now
+                track["alt_ft"] = alt
 
         track["last"] = now
+        ids = identities_from_flight(flight)
+        self._remember_identities(ids)
+        for field, value in ids.items():
+            if value:
+                track[field] = value
         label = flight_label(flight)
         if label:
             track["label"] = label
@@ -514,6 +620,9 @@ class FlipBoardTracker:
 
         event = {
             "id": label,
+            "tail": str(track.get("tail") or ""),
+            "callsign": str(track.get("callsign") or ""),
+            "flight_number": str(track.get("flight_number") or ""),
             "type": str(track.get("type") or ""),
             "at": float(at),
             "ident": ident,
@@ -538,6 +647,53 @@ class FlipBoardTracker:
         for key, track in list(self._tracks.items()):
             if float(track.get("last") or 0.0) < stale:
                 del self._tracks[key]
+        keep = {
+            _clean_ident(track.get("hex") or track.get("icao_hex"))
+            for track in self._tracks.values()
+        }
+        for board in self._boards.values():
+            for rows in board.values():
+                for event in rows:
+                    keep.add(_clean_ident(event.get("hex")))
+        keep.discard("")
+        self._idents = {hex_id: ids for hex_id, ids in self._idents.items() if hex_id in keep}
+
+    def _remember_identities(self, ids: dict[str, str]) -> None:
+        """Keep live airline ids and copy them onto any matching board row."""
+        hex_id = _clean_ident(ids.get("icao_hex"))
+        if not hex_id:
+            return
+        remembered = self._idents.setdefault(hex_id, {})
+        for field in ("tail", "callsign", "flight_number"):
+            value = ids.get(field) or ""
+            if value:
+                remembered[field] = value
+        remembered["hex"] = hex_id
+        remembered["icao_hex"] = hex_id
+        for board in self._boards.values():
+            for rows in board.values():
+                for event in rows:
+                    if _clean_ident(event.get("hex")) != hex_id:
+                        continue
+                    if self._fill_event_identities(event, remembered):
+                        self.identity_changed = True
+
+    def _fill_event_identities(self, event: dict, ids: dict[str, str]) -> bool:
+        """Copy tail/callsign/flight number onto a stored row. True if it changed."""
+        changed = False
+        for field in ("tail", "callsign", "flight_number"):
+            value = str(ids.get(field) or "")
+            if value and str(event.get(field) or "") != value:
+                event[field] = value
+                changed = True
+        return changed
+
+    def _enrich_event(self, event: dict) -> dict:
+        out = dict(event)
+        cached = self._idents.get(_clean_ident(event.get("hex")))
+        if cached:
+            self._fill_event_identities(out, cached)
+        return out
 
     # -- reading ----------------------------------------------------------
 
@@ -549,8 +705,8 @@ class FlipBoardTracker:
             if not board:
                 return {"arrivals": [], "departures": []}
             return {
-                "arrivals": [dict(e) for e in board.get("arrivals", [])],
-                "departures": [dict(e) for e in board.get("departures", [])],
+                "arrivals": [self._enrich_event(e) for e in board.get("arrivals", [])],
+                "departures": [self._enrich_event(e) for e in board.get("departures", [])],
             }
 
     def idents(self) -> list[str]:
@@ -576,10 +732,43 @@ class FlipBoardTracker:
                     }
                     for ident, board in self._boards.items()
                 },
+                # Pending approaches must survive a kiosk restart. Dropping them
+                # left a hole in the board for every aircraft that was already
+                # on final when the process came back.
+                "tracks": {
+                    key: dict(track) for key, track in self._tracks.items()
+                },
             }
 
+    @staticmethod
+    def _track_from_dict(raw: dict) -> dict:
+        """Coerce one saved track back into live state."""
+        alt_ft = raw.get("alt_ft")
+        try:
+            alt_ft = int(alt_ft) if alt_ft is not None else None
+        except (TypeError, ValueError):
+            alt_ft = None
+        return {
+            "first": float(raw.get("first") or 0.0),
+            "last": float(raw.get("last") or 0.0),
+            "born_at": str(raw.get("born_at") or ""),
+            "departed_from": str(raw.get("departed_from") or ""),
+            "arriving_at": str(raw.get("arriving_at") or ""),
+            "arriving_since": float(raw.get("arriving_since") or 0.0),
+            "ground_at": str(raw.get("ground_at") or ""),
+            "arrived_at": str(raw.get("arrived_at") or ""),
+            "alt_at": float(raw.get("alt_at") or 0.0),
+            "alt_ft": alt_ft,
+            "label": str(raw.get("label") or ""),
+            "tail": str(raw.get("tail") or ""),
+            "callsign": str(raw.get("callsign") or ""),
+            "flight_number": str(raw.get("flight_number") or ""),
+            "type": str(raw.get("type") or ""),
+            "hex": str(raw.get("hex") or ""),
+        }
+
     def load_dict(self, data: dict) -> None:
-        """Restore saved movements. Live tracks are intentionally not restored."""
+        """Restore saved movements and any in-progress tracks."""
         if not isinstance(data, dict) or data.get("_version") != STATE_VERSION:
             return
         boards = data.get("boards")
@@ -597,6 +786,9 @@ class FlipBoardTracker:
                 clean = [
                     {
                         "id": str(row.get("id") or "").upper(),
+                        "tail": str(row.get("tail") or "").upper(),
+                        "callsign": str(row.get("callsign") or "").upper(),
+                        "flight_number": str(row.get("flight_number") or "").upper(),
                         "type": str(row.get("type") or ""),
                         "at": float(row.get("at") or 0.0),
                         "ident": str(row.get("ident") or ident).upper(),
@@ -609,10 +801,18 @@ class FlipBoardTracker:
                 entry[bucket] = clean[: self.max_rows]
             if entry["arrivals"] or entry["departures"]:
                 restored[str(ident).upper()] = entry
+        restored_tracks: dict[str, dict[str, Any]] = {}
+        tracks = data.get("tracks")
+        if isinstance(tracks, dict):
+            for key, raw in tracks.items():
+                if not key or not isinstance(raw, dict):
+                    continue
+                restored_tracks[str(key)] = self._track_from_dict(raw)
         # Not expired here — the first observe() call trims anything stale, and
         # doing it now would wipe the board if the clock has not synced yet.
         with self._lock:
             self._boards = restored
+            self._tracks = restored_tracks
 
 
 _tracker: FlipBoardTracker | None = None

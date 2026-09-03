@@ -84,7 +84,7 @@ def _init_sweep():
 
 _rebuild_counts = {"backdrop": 0, "layer": 0}
 
-# Short-lived name pill after a favorite-location swipe.
+# Short-lived name pill after switching Home / a favorite location.
 _LOCATION_TOAST_TTL_S = 2.0
 _location_toast_label = ""
 _location_toast_until = 0.0
@@ -99,7 +99,7 @@ def _rebuild_stage(name: str, t0: float) -> float:
 
 
 def show_location_toast(label: str) -> None:
-    """Show a brief Home / favorite name after a radar swipe cycle."""
+    """Show a brief Home / favorite name after the active center changes."""
     global _location_toast_label, _location_toast_until
     text = str(label or "").strip() or "Location"
     _location_toast_label = text
