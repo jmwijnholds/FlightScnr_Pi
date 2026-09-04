@@ -4146,7 +4146,7 @@ class RoundTouchDisplay:
             return False
         if self.screen in (
             SCREEN_SETTINGS, SCREEN_DETAILS, SCREEN_FLIGHT, SCREEN_FIRE, SCREEN_QUAKE,
-            SCREEN_CLOCK, SCREEN_FORECAST, SCREEN_UPDATE_NOTES,
+            SCREEN_FORECAST, SCREEN_UPDATE_NOTES,
             SCREEN_TRACKED,
         ):
             return nav.tap_breadcrumb_curved(x, y)
