@@ -3703,18 +3703,18 @@ def draw_info(
                 # Chevron triangle: right when collapsed, down when expanded.
                 tri_cx = lx + exp_label.get_width() + theme.s(14)
                 tri_cy = ly + text_h // 2
-                tr = theme.s(5)
+                tri_r = theme.s(5)
                 if expanded:
                     pts = [
-                        (tri_cx - tr, tri_cy - tr // 2),
-                        (tri_cx + tr, tri_cy - tr // 2),
-                        (tri_cx, tri_cy + tr),
+                        (tri_cx - tri_r, tri_cy - tri_r // 2),
+                        (tri_cx + tri_r, tri_cy - tri_r // 2),
+                        (tri_cx, tri_cy + tri_r),
                     ]
                 else:
                     pts = [
-                        (tri_cx - tr // 2, tri_cy - tr),
-                        (tri_cx - tr // 2, tri_cy + tr),
-                        (tri_cx + tr, tri_cy),
+                        (tri_cx - tri_r // 2, tri_cy - tri_r),
+                        (tri_cx - tri_r // 2, tri_cy + tri_r),
+                        (tri_cx + tri_r, tri_cy),
                     ]
                 pygame.draw.polygon(surface, theme.MUTED, pts)
 
