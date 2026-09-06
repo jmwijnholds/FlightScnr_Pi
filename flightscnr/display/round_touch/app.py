@@ -62,6 +62,7 @@ from display.round_touch import (
 )
 from utilities import aircraft_alert
 from display.round_touch import alert_sounds
+from i18n import tr
 from display.round_touch.screens import (
     analog_clock,
     clock,
@@ -1099,7 +1100,9 @@ class RoundTouchDisplay:
                 draw.fill_background(self.surface)
                 tracked.draw_footer(self.surface, None)
                 nav.draw_curved_breadcrumb(
-                    self.surface, ["Radar", "Follow"], with_scrim=True
+                    self.surface,
+                    [tr("common.radar"), tr("flight.breadcrumb.follow")],
+                    with_scrim=True,
                 )
                 from utilities.overhead import load_tracked_callsign as _ltc
 
@@ -1261,9 +1264,9 @@ class RoundTouchDisplay:
         draw.fill_background(self.surface)
 
         display_id = display_flight_id_for_flight(overlay) if overlay else "Follow"
-        trail = ["Radar", "Follow"]
+        trail = [tr("common.radar"), tr("flight.breadcrumb.follow")]
         if display_id and display_id not in ("—", "Follow", "Live"):
-            trail = ["Radar", "Follow", display_id]
+            trail = [tr("common.radar"), tr("flight.breadcrumb.follow"), display_id]
 
         if lat is None or lon is None:
             # Nothing to center on yet — next throttled fetch may fill this in.

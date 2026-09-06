@@ -21,6 +21,7 @@ from typing import NamedTuple
 import pygame
 
 from display.round_touch import draw, settings, theme
+from i18n import tr
 
 # Reference layout was 600×600 with center 300; scale via dial radius.
 _REF_R = 270.0
@@ -305,7 +306,7 @@ def draw_analog_clock(surface: pygame.Surface, *, night_vision: bool = False) ->
     ax += 20
     surface.blit(brand, brand.get_rect(center=(ax, ay)))
 
-    year_l = draw.render_text_cached(label_font, "YEAR", pal.muted)
+    year_l = draw.render_text_cached(label_font, tr("analog.year"), pal.muted)
     yx, yy = ref(440, 240)
     surface.blit(year_l, year_l.get_rect(center=(yx, yy)))
 
