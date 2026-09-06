@@ -932,5 +932,15 @@
   "radar_hud.channel.lofi": "LoFi",
   "favourite.saved_default": "Opgeslagen",
   "favourite.title": "Favorieten",
-  "lofi.plays_under_atc": "Speelt onder ATC-audio"
+  "lofi.plays_under_atc": "Speelt onder ATC-audio",
+  "reboot.enabling_pinch": "Pinch-to-zoom inschakelen…",
+  "reboot.shutting_down": "Bezig met uitschakelen",
+  "moon.phase.new": "Nieuwe maan",
+  "moon.phase.waxing_crescent": "Wassende sikkel",
+  "moon.phase.first_quarter": "Eerste kwartier",
+  "moon.phase.waxing_gibbous": "Wassende maan",
+  "moon.phase.full": "Volle maan",
+  "moon.phase.waning_gibbous": "Afnemende maan",
+  "moon.phase.last_quarter": "Laatste kwartier",
+  "moon.phase.waning_crescent": "Afnemende sikkel"
 }

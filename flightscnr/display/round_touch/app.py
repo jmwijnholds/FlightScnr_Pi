@@ -1450,7 +1450,7 @@ class RoundTouchDisplay:
         copy = system_control.reboot_progress_copy()
         if copy is None:
             return
-        title, detail = copy
+        title, detail = tr(copy[0]), tr(copy[1])
         info.draw_reboot_progress_popup(self.surface, title, detail)
 
     @staticmethod

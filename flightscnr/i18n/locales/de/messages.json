@@ -932,5 +932,15 @@
   "radar_hud.channel.lofi": "LoFi",
   "favourite.saved_default": "Saved",
   "favourite.title": "Favorites",
-  "lofi.plays_under_atc": "Plays under ATC audio"
+  "lofi.plays_under_atc": "Plays under ATC audio",
+  "reboot.enabling_pinch": "Enabling pinch-to-zoom…",
+  "reboot.shutting_down": "Shutting down",
+  "moon.phase.new": "New Moon",
+  "moon.phase.waxing_crescent": "Waxing Crescent",
+  "moon.phase.first_quarter": "First Quarter",
+  "moon.phase.waxing_gibbous": "Waxing Gibbous",
+  "moon.phase.full": "Full Moon",
+  "moon.phase.waning_gibbous": "Waning Gibbous",
+  "moon.phase.last_quarter": "Last Quarter",
+  "moon.phase.waning_crescent": "Waning Crescent"
 }
