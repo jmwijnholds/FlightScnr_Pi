@@ -306,7 +306,7 @@ def draw_flieger_clock(surface: pygame.Surface) -> None:
     surface.blit(date_g, date_g.get_rect(center=date_rect.center))
 
     brand_font = draw.load_font(max(theme.s(11), int(dial_r * 0.042)), bold=True)
-    brand = draw.render_text_cached(brand_font, "FLIGHTSCNR", _INK)
+    brand = draw.render_text_cached(brand_font, "FLIGHTSCNRPI", _INK)
     brand_cx = (day_rect.centerx + date_rect.centerx) / 2
     surface.blit(
         brand,

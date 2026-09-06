@@ -928,5 +928,9 @@
   "settings.opt.airport_size.large": "Alleen groot",
   "settings.opt.airport_size.medium": "Groot + middel",
   "settings.opt.airport_size.small_paved": "Klein (alleen verhard)",
-  "settings.opt.airport_size.small": "Alle kleine stripjes"
+  "settings.opt.airport_size.small": "Alle kleine stripjes",
+  "radar_hud.channel.lofi": "LoFi",
+  "favourite.saved_default": "Opgeslagen",
+  "favourite.title": "Favorieten",
+  "lofi.plays_under_atc": "Speelt onder ATC-audio"
 }

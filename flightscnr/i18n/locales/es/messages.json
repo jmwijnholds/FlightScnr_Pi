@@ -928,5 +928,9 @@
   "settings.opt.airport_size.large": "Large only",
   "settings.opt.airport_size.medium": "Large + medium",
   "settings.opt.airport_size.small_paved": "Small (paved only)",
-  "settings.opt.airport_size.small": "All small strips"
+  "settings.opt.airport_size.small": "All small strips",
+  "radar_hud.channel.lofi": "LoFi",
+  "favourite.saved_default": "Saved",
+  "favourite.title": "Favorites",
+  "lofi.plays_under_atc": "Plays under ATC audio"
 }

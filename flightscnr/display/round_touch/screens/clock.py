@@ -14,14 +14,14 @@ from datetime import datetime
 import pygame
 
 from display.round_touch import draw, nav, settings, theme, weather_data, weather_icons
-from i18n import format_date, tr
+from i18n import format_date
 
 FOOTER_BUTTONS = ("radar",)
 
-# Tight vertical rhythm — matches firmware reference (390px ref, scaled).
-_LINE_GAP = lambda: theme.s(2)
-_AFTER_TIME = lambda: theme.s(2)
-_SECTION_GAP = lambda: theme.s(4)
+# Vertical rhythm — no breadcrumb chrome, so use a bit more air between blocks.
+_LINE_GAP = lambda: theme.s(4)
+_AFTER_TIME = lambda: theme.s(8)
+_SECTION_GAP = lambda: theme.s(12)
 _WEATHER_ICON = lambda: theme.s(40)
 _SUN_OFFSET = lambda: theme.s(82)
 
@@ -80,8 +80,10 @@ def _footer_limit_y() -> int:
 
 
 def _clock_start_y() -> int:
-    """Anchor the clock block just below the breadcrumb."""
-    return nav.content_top_y() + theme.s(2)
+    """Anchor the clock block near the dial rim (no breadcrumb clearance)."""
+    # content_top_y() reserves breadcrumb height; reclaim most of that band so
+    # the time sits higher and section gaps below can breathe.
+    return nav.content_top_y() - theme.s(28)
 
 
 def _draw_time_block(surface, y: int) -> int:
@@ -279,7 +281,6 @@ def tap_on_time(x: int, y: int) -> bool:
 
 def draw_clock(surface):
     draw.fill_background_textured(surface)
-    nav.draw_curved_breadcrumb(surface, [tr("common.radar"), tr("common.clock")])
 
     wx = weather_data.refresh() or weather_data.snapshot()
     date_str = _date_string()
