@@ -31,6 +31,17 @@ from i18n import tr
 
 logger = logging.getLogger("flightscnr.display")
 
+# metar_mod returns English plain words for these two cases (the rest is
+# technical: degrees, kt, SM, FEW/BKN/OVC codes). Map only the plain words to
+# catalog keys; everything else passes through unchanged. Keep in sync with
+# utilities.metar.wind_text/sky_text.
+_METAR_WORD_KEYS = {"Calm": "metar.calm", "Clear": "metar.clear"}
+
+
+def _metar_localize(value: str) -> str:
+    key = _METAR_WORD_KEYS.get(value)
+    return tr(key) if key else value
+
 # The tile stays up 10 s after the METAR loads (or fetch settles empty);
 # FETCH_CAP_S bounds a hung fetch so the tile can never linger forever.
 TIMEOUT_S = 10.0
@@ -287,9 +298,9 @@ def draw(surface: pygame.Surface) -> pygame.Rect | None:
     footer = ""
     if m:
         rows = [
-            (tr("airport.metar.wind"), metar_mod.wind_text(m)),
+            (tr("airport.metar.wind"), _metar_localize(metar_mod.wind_text(m))),
             (tr("airport.metar.vis"), metar_mod.visibility_text(m)),
-            (tr("airport.metar.sky"), metar_mod.sky_text(m)),
+            (tr("airport.metar.sky"), _metar_localize(metar_mod.sky_text(m))),
             (tr("airport.metar.temp"), metar_mod.temp_text(m, unit=_temp_unit())),
             (tr("airport.metar.alt"), metar_mod.altimeter_text(m)),
         ]

@@ -942,5 +942,7 @@
   "moon.phase.full": "Full Moon",
   "moon.phase.waning_gibbous": "Waning Gibbous",
   "moon.phase.last_quarter": "Last Quarter",
-  "moon.phase.waning_crescent": "Waning Crescent"
+  "moon.phase.waning_crescent": "Waning Crescent",
+  "metar.calm": "Calm",
+  "metar.clear": "Clear"
 }

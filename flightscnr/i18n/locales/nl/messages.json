@@ -942,5 +942,7 @@
   "moon.phase.full": "Volle maan",
   "moon.phase.waning_gibbous": "Afnemende maan",
   "moon.phase.last_quarter": "Laatste kwartier",
-  "moon.phase.waning_crescent": "Afnemende sikkel"
+  "moon.phase.waning_crescent": "Afnemende sikkel",
+  "metar.calm": "Windstil",
+  "metar.clear": "Helder"
 }
