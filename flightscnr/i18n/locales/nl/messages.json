@@ -948,5 +948,9 @@
   "portal.off_hours.mode.label": "Tijdens rusturen",
   "portal.off_hours.mode.dim": "Scherm dimmen",
   "portal.off_hours.mode.off": "Scherm uitschakelen",
-  "portal.off_hours.dim.label": "Dimhelderheid"
+  "portal.off_hours.dim.label": "Dimhelderheid",
+  "power.title": "Aan/uit",
+  "power.screen_off": "Scherm uit",
+  "power.screen_off.hint": "Verlichting uit, tik om te wekken",
+  "power.close_hint": "Tik ernaast om te sluiten"
 }

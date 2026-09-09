@@ -948,5 +948,9 @@
   "portal.off_hours.mode.label": "During off-hours",
   "portal.off_hours.mode.dim": "Dim display",
   "portal.off_hours.mode.off": "Turn off display",
-  "portal.off_hours.dim.label": "Dim brightness"
+  "portal.off_hours.dim.label": "Dim brightness",
+  "power.title": "Power",
+  "power.screen_off": "Screen off",
+  "power.screen_off.hint": "Backlight off, tap to wake",
+  "power.close_hint": "Tap outside to close"
 }
