@@ -133,8 +133,6 @@ class RoundTouchDisplay:
     _power_menu_open = False
     _power_confirm: str | None = None
     _manual_screen_off = False
-    _time_hold_down_at: float | None = None
-    _time_hold_fired = False
 
     def __init__(self):
         from utilities import system_control
@@ -1126,14 +1124,22 @@ class RoundTouchDisplay:
                     tracked.draw_follow_loading(self.surface, pending)
             self._scroll.max_offset = 0
         self._scroll.clamp()
-        # Quick power menu overlay (opened by a long-press on the clock),
-        # drawn before the timeout-ring capture so it is part of the rotated
+        # Quick power menu: a small icon on the radar/clock opens the overlay.
+        # Drawn before the timeout-ring capture so it is part of the rotated
         # snapshot on radar rather than hidden behind the ring's cached base.
         if self._power_menu_open:
             if self._power_confirm is not None:
                 power_menu.draw_confirm(self.surface, self._power_confirm)
             else:
                 power_menu.draw_menu(self.surface)
+        elif self._manual_screen_off:
+            power_menu.clear_icon()
+        else:
+            icon_center = self._power_icon_center()
+            if icon_center is not None:
+                power_menu.draw_icon(self.surface, *icon_center)
+            else:
+                power_menu.clear_icon()
         remaining = self._timeout_remaining_fraction()
         if remaining is not None:
             # Snapshot content+bezel (no ring) and a pre-rotated display base so
@@ -3159,66 +3165,24 @@ class RoundTouchDisplay:
         self._note_activity()
         return True
 
-    def _clear_time_hold(self) -> None:
-        self._time_hold_down_at = None
-        self._time_hold_fired = False
+    def _power_icon_center(self) -> tuple[int, int] | None:
+        """Where the small power icon sits on the current screen, or None.
 
-    def _time_hold_hits(self, x: int, y: int) -> bool:
-        """True when (x, y) is on a clock that should open the power menu."""
-        if self._power_menu_open or self._manual_screen_off:
-            return False
+        Clock: the footer slot the radar button used to occupy. Radar: bottom
+        centre, but the side opposite the clock HUD so it never collides.
+        """
         if self.screen == SCREEN_CLOCK:
-            return clock.tap_on_time(x, y)
-        if self.screen == SCREEN_RADAR and settings.radar_hud_enabled():
-            return radar_hud.hit_clock(x, y)
-        return False
-
-    def _begin_time_hold(self, x: int, y: int) -> bool:
-        """Arm a long-press on the clock time (clock face or radar HUD clock)."""
-        if self._radar_modal_active() or not self._time_hold_hits(x, y):
-            self._clear_time_hold()
-            return False
-        self._time_hold_down_at = time.time()
-        self._time_hold_fired = False
-        # This hold owns the finger — don't also arm map pan or HUD-icon mute.
-        self._long_press_pan.clear_candidate()
-        self._clear_hud_mute_hold()
-        return True
-
-    def _tick_time_hold(self) -> bool:
-        """Open the power menu after a still 500 ms hold on the clock."""
-        if self._time_hold_down_at is None:
-            return False
-        if self._power_menu_open or not self.input.is_dragging():
-            self._clear_time_hold()
-            return False
-        threshold = float(input_handler.gesture_threshold_px())
-        if self.input.max_travel() >= threshold * long_press_pan.HOLD_TRAVEL_FRAC:
-            # Finger moved — abandon (may become a swipe / pan).
-            self._clear_time_hold()
-            return False
-        if self._time_hold_fired:
-            return False
-        if (time.time() - self._time_hold_down_at) * 1000.0 < long_press_pan.HOLD_MS:
-            return False
-        self._time_hold_fired = True
-        self._power_menu_open = True
-        self._power_confirm = None
-        # Swallow the release so the tap doesn't toggle 12/24h or hit the radar.
-        self.input.suppress_finish_result()
-        if self.screen == SCREEN_RADAR:
-            self._suppress_next_radar_tap = True
-        self._long_press_pan.clear_candidate()
-        self._note_activity()
-        self._clear_time_hold()
-        return True
+            rects = nav.footer_button_rects(1)
+            return rects[0].center if rects else None
+        if self.screen == SCREEN_RADAR and not self._radar_modal_active():
+            r = int(theme.VISIBLE_RADIUS * 0.70)
+            if settings.radar_hud_position() == "bottom":
+                return (theme.CENTER_X, theme.CENTER_Y - r)
+            return (theme.CENTER_X, theme.CENTER_Y + r)
+        return None
 
     def _tick_long_press_pan(self) -> bool:
         """Arm map pan after a still hold on radar. Returns True if newly armed."""
-        # A clock long-press (power menu) owns the finger.
-        if self._time_hold_down_at is not None:
-            self._long_press_pan.clear_candidate()
-            return False
         # Debug HUD arrange owns the finger — do not steal into recenter pan.
         if (
             self.screen == SCREEN_RADAR
@@ -4431,8 +4395,17 @@ class RoundTouchDisplay:
                 self._safe_draw()
             return True
 
-        # The menu is opened by a long-press on the clock (see _tick_time_hold),
-        # not by a tap here.
+        # A tap on the small power icon (radar / clock) opens the menu.
+        if (
+            tap
+            and not self._radar_modal_active()
+            and power_menu.icon_hit(tap[0], tap[1])
+        ):
+            self._power_menu_open = True
+            self._power_confirm = None
+            self._note_activity()
+            self._safe_draw()
+            return True
         return False
 
     def _handle_navigation(self):
@@ -5958,16 +5931,6 @@ class RoundTouchDisplay:
                             pos = self.input.drag_pos()
                             if pos is not None:
                                 self._begin_hud_mute_hold(*pos)
-                        # Long-press on the clock (clock face or radar HUD clock)
-                        # opens the power menu.
-                        if (
-                            ptr_down
-                            and not self._radar_modal_active()
-                            and self.gestures.pinch.finger_count() <= 1
-                        ):
-                            pos = self.input.drag_pos()
-                            if pos is not None:
-                                self._begin_time_hold(*pos)
                         if (
                             self.screen == SCREEN_RADAR
                             and not self._radar_modal_active()
@@ -5987,11 +5950,7 @@ class RoundTouchDisplay:
                 _lt = self._loop_stage("loop_events", _lt)
                 _body_t = _lt
 
-                if (
-                    self._tick_time_hold()
-                    or self._tick_hud_mute_hold()
-                    or self._tick_long_press_pan()
-                ):
+                if self._tick_hud_mute_hold() or self._tick_long_press_pan():
                     self._safe_draw()
                     self._last_radar_draw = time.time()
 

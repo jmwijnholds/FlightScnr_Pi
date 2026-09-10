@@ -34,7 +34,6 @@ _alert_rect = pygame.Rect(0, 0, 0, 0)
 _atc_rect = pygame.Rect(0, 0, 0, 0)
 _lofi_rect = pygame.Rect(0, 0, 0, 0)
 _home_rect = pygame.Rect(0, 0, 0, 0)
-_clock_hit_rect = pygame.Rect(0, 0, 0, 0)
 _slider_track = pygame.Rect(0, 0, 0, 0)
 _hud_bounds = pygame.Rect(0, 0, 0, 0)
 
@@ -121,14 +120,6 @@ def hit_right_icon(x: int, y: int) -> str | None:
     if hit_lofi(x, y):
         return "lofi"
     return None
-
-
-def hit_clock(x: int, y: int) -> bool:
-    """True when ``(x, y)`` is on the HUD clock (used for the power long-press)."""
-    if _clock_hit_rect.width <= 0:
-        g = _geometry(_wx_snapshot())
-        _refresh_hit_targets(g)
-    return _clock_hit_rect.collidepoint(x, y)
 
 
 # Transparent HUD stamp (curved pill + icons). Blitted after the sweep so the
@@ -1013,7 +1004,7 @@ def _draw_curved_white_pill(
 
 def _refresh_hit_targets(g: dict) -> None:
     global _chime_rect, _speaker_rect, _alert_rect, _atc_rect, _lofi_rect
-    global _home_rect, _hud_bounds, _layout_hit, _clock_hit_rect
+    global _home_rect, _hud_bounds, _layout_hit
     ir = g["icon_r"]
     icon_px = int(g.get("icon_px") or ir * 2)
     # Pad around the glyph, but never so far that neighbouring icons overlap.
@@ -1041,10 +1032,6 @@ def _refresh_hit_targets(g: dict) -> None:
     _lofi_rect.center = g["lofi_c"]
     _home_rect = pygame.Rect(0, 0, hit, hit)
     _home_rect.center = g["home_c"]
-    # Clock long-press target (opens the power menu). Wider than an icon to
-    # cover the HH:MM glyph; height matches the icon row.
-    _clock_hit_rect = pygame.Rect(0, 0, int(hit * 2.1), hit)
-    _clock_hit_rect.center = g["clock_c"]
 
     _layout_hit = {}
     arrange = settings.radar_hud_arrange()
@@ -1096,14 +1083,13 @@ def draw_hud(
 
     if not settings.radar_hud_enabled():
         global _chime_rect, _speaker_rect, _alert_rect, _atc_rect, _lofi_rect
-        global _home_rect, _layout_hit, _clock_hit_rect
+        global _home_rect, _layout_hit
         _chime_rect = pygame.Rect(0, 0, 0, 0)
         _speaker_rect = pygame.Rect(0, 0, 0, 0)
         _alert_rect = pygame.Rect(0, 0, 0, 0)
         _atc_rect = pygame.Rect(0, 0, 0, 0)
         _lofi_rect = pygame.Rect(0, 0, 0, 0)
         _home_rect = pygame.Rect(0, 0, 0, 0)
-        _clock_hit_rect = pygame.Rect(0, 0, 0, 0)
         _layout_hit = {}
         _slider_track = pygame.Rect(0, 0, 0, 0)
         return
