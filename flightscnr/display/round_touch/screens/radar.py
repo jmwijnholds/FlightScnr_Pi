@@ -274,6 +274,12 @@ def _build_frame_layer(build: pygame.Surface, backdrop, flights, offset) -> bool
         zoom_buttons.draw(build)
     except Exception:
         pass
+    try:
+        from display.round_touch import radar_hud
+
+        radar_hud.draw_power_button(build)
+    except Exception:
+        pass
     # lofi_controls pill is stamped per frame in rotation.present() — the
     # marquee title animates, so it can't live in this cached layer.
     _t = _rebuild_stage("2r_status", _t)

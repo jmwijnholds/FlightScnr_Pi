@@ -1140,8 +1140,10 @@ class RoundTouchDisplay:
             if rects:
                 power_menu.draw_icon(self.surface, *rects[0].center)
             radar_hud.clear_power_button()
-        elif self.screen == SCREEN_RADAR and not self._radar_modal_active():
-            radar_hud.draw_power_button(self.surface)
+        elif self.screen == SCREEN_RADAR:
+            # The radar power button is baked into the radar frame layer
+            # (radar._build_frame_layer -> radar_hud.draw_power_button), which
+            # also maintains its hit rect. Nothing to draw on self.surface.
             power_menu.clear_icon()
         else:
             power_menu.clear_icon()
