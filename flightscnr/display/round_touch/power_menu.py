@@ -65,11 +65,12 @@ def _style_colors(style: str) -> tuple[tuple[int, int, int], tuple[int, int, int
 
 
 def glyph_center() -> tuple[int, int]:
-    """Where the persistent power glyph sits (lower-right, clear of the
-    clock's centred footer button and the radar HUD)."""
+    """Where the persistent power glyph sits: lower-left, below the clock's
+    sun row and left of its centred footer button, and clear of the radar
+    HUD (top) and zoom controls."""
     return (
-        theme.CENTER_X + int(theme.VISIBLE_RADIUS * 0.46),
-        theme.CENTER_Y + int(theme.VISIBLE_RADIUS * 0.46),
+        theme.CENTER_X - int(theme.VISIBLE_RADIUS * 0.40),
+        theme.CENTER_Y + int(theme.VISIBLE_RADIUS * 0.55),
     )
 
 
@@ -89,9 +90,11 @@ def _draw_power_symbol(surface, cx: int, cy: int, r: int, color, width: int) -> 
 def draw_glyph(surface) -> None:
     cx, cy = glyph_center()
     r = _glyph_radius()
-    pygame.draw.circle(surface, _NORMAL_FILL, (cx, cy), r)
-    pygame.draw.circle(surface, _NORMAL_BORDER, (cx, cy), r, max(1, theme.s(2)))
-    _draw_power_symbol(surface, cx, cy, r, _NORMAL_BORDER, max(2, theme.s(2)))
+    # Solid dark disc so the glyph reads on the busy radar map, then a bright
+    # ring + symbol for contrast on both the dark clock and the map.
+    pygame.draw.circle(surface, (3, 10, 6), (cx, cy), r)
+    pygame.draw.circle(surface, (64, 200, 96), (cx, cy), r, max(2, theme.s(2)))
+    _draw_power_symbol(surface, cx, cy, r, (120, 240, 150), max(2, theme.s(2)))
 
 
 def glyph_hit(x: int, y: int) -> bool:
