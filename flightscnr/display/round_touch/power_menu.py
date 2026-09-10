@@ -69,8 +69,8 @@ def glyph_center() -> tuple[int, int]:
     sun row and left of its centred footer button, and clear of the radar
     HUD (top) and zoom controls."""
     return (
-        theme.CENTER_X - int(theme.VISIBLE_RADIUS * 0.40),
-        theme.CENTER_Y + int(theme.VISIBLE_RADIUS * 0.55),
+        theme.CENTER_X - int(theme.VISIBLE_RADIUS * 0.60),
+        theme.CENTER_Y + int(theme.VISIBLE_RADIUS * 0.05),
     )
 
 
