@@ -1134,12 +1134,18 @@ class RoundTouchDisplay:
                 power_menu.draw_menu(self.surface)
         elif self._manual_screen_off:
             power_menu.clear_icon()
+            radar_hud.clear_power_button()
+        elif self.screen == SCREEN_CLOCK:
+            rects = nav.footer_button_rects(1)
+            if rects:
+                power_menu.draw_icon(self.surface, *rects[0].center)
+            radar_hud.clear_power_button()
+        elif self.screen == SCREEN_RADAR and not self._radar_modal_active():
+            radar_hud.draw_power_button(self.surface)
+            power_menu.clear_icon()
         else:
-            icon_center = self._power_icon_center()
-            if icon_center is not None:
-                power_menu.draw_icon(self.surface, *icon_center)
-            else:
-                power_menu.clear_icon()
+            power_menu.clear_icon()
+            radar_hud.clear_power_button()
         remaining = self._timeout_remaining_fraction()
         if remaining is not None:
             # Snapshot content+bezel (no ring) and a pre-rotated display base so
@@ -3165,22 +3171,6 @@ class RoundTouchDisplay:
         self._note_activity()
         return True
 
-    def _power_icon_center(self) -> tuple[int, int] | None:
-        """Where the small power icon sits on the current screen, or None.
-
-        Clock: the footer slot the radar button used to occupy. Radar: bottom
-        centre, but the side opposite the clock HUD so it never collides.
-        """
-        if self.screen == SCREEN_CLOCK:
-            rects = nav.footer_button_rects(1)
-            return rects[0].center if rects else None
-        if self.screen == SCREEN_RADAR and not self._radar_modal_active():
-            r = int(theme.VISIBLE_RADIUS * 0.70)
-            if settings.radar_hud_position() == "bottom":
-                return (theme.CENTER_X, theme.CENTER_Y - r)
-            return (theme.CENTER_X, theme.CENTER_Y + r)
-        return None
-
     def _tick_long_press_pan(self) -> bool:
         """Arm map pan after a still hold on radar. Returns True if newly armed."""
         # Debug HUD arrange owns the finger — do not steal into recenter pan.
@@ -4395,11 +4385,15 @@ class RoundTouchDisplay:
                 self._safe_draw()
             return True
 
-        # A tap on the small power icon (radar / clock) opens the menu.
+        # A tap on the power control (clock footer icon or radar rim button)
+        # opens the menu.
         if (
             tap
             and not self._radar_modal_active()
-            and power_menu.icon_hit(tap[0], tap[1])
+            and (
+                power_menu.icon_hit(tap[0], tap[1])
+                or radar_hud.hit_power(tap[0], tap[1])
+            )
         ):
             self._power_menu_open = True
             self._power_confirm = None

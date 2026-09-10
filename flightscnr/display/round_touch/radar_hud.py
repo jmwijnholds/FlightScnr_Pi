@@ -34,6 +34,7 @@ _alert_rect = pygame.Rect(0, 0, 0, 0)
 _atc_rect = pygame.Rect(0, 0, 0, 0)
 _lofi_rect = pygame.Rect(0, 0, 0, 0)
 _home_rect = pygame.Rect(0, 0, 0, 0)
+_power_rect = pygame.Rect(0, 0, 0, 0)
 _slider_track = pygame.Rect(0, 0, 0, 0)
 _hud_bounds = pygame.Rect(0, 0, 0, 0)
 
@@ -120,6 +121,57 @@ def hit_right_icon(x: int, y: int) -> str | None:
     if hit_lofi(x, y):
         return "lofi"
     return None
+
+
+def draw_power_button(surface) -> None:
+    """Frosted power button on the radar rim, opposite the clock HUD.
+
+    Uses the same translucent chrome as the zoom pill so it reads as a
+    control rather than blending into the map.
+    """
+    global _power_rect
+    cx, cy = theme.CENTER_X, theme.CENTER_Y
+    r_mid = int(theme.VISIBLE_RADIUS * 0.84)
+    band = theme.s(30)
+    mid = -math.pi / 2 if settings.radar_hud_position() == "bottom" else math.pi / 2
+
+    def ang(px: float) -> float:
+        return float(px) / float(max(1, r_mid))
+
+    def polar(a: float) -> tuple[int, int]:
+        return (
+            int(round(cx + r_mid * math.cos(a))),
+            int(round(cy + r_mid * math.sin(a))),
+        )
+
+    glyph_rgb, fill_rgba = _hud_chrome()
+    alpha = int(fill_rgba[3] * 0.55)
+    half = ang(theme.s(20))
+    end_pad = ang(theme.s(10))
+    _draw_curved_white_pill(
+        surface, cx, cy, r_mid, mid, band, (*fill_rgba[:3], alpha),
+        arc_a0=mid - (half + end_pad), arc_a1=mid + (half + end_pad),
+    )
+    c = polar(mid)
+    gr = theme.s(11)
+    w = max(2, theme.s(2))
+    pygame.draw.circle(surface, glyph_rgb, c, int(gr * 0.62), w)
+    pygame.draw.line(
+        surface, glyph_rgb,
+        (c[0], c[1] - int(gr * 0.85)), (c[0], c[1] - int(gr * 0.05)), w,
+    )
+    hit = band + theme.s(12)
+    _power_rect = pygame.Rect(0, 0, hit, hit)
+    _power_rect.center = c
+
+
+def clear_power_button() -> None:
+    global _power_rect
+    _power_rect = pygame.Rect(0, 0, 0, 0)
+
+
+def hit_power(x: int, y: int) -> bool:
+    return _power_rect.width > 0 and _power_rect.collidepoint(x, y)
 
 
 # Transparent HUD stamp (curved pill + icons). Blitted after the sweep so the
