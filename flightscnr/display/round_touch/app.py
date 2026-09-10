@@ -1134,6 +1134,17 @@ class RoundTouchDisplay:
                     tracked.draw_follow_loading(self.surface, pending)
             self._scroll.max_offset = 0
         self._scroll.clamp()
+        # Quick power menu: glyph on the idle faces, overlay/confirm on top.
+        # Drawn before the timeout-ring capture so the glyph is part of the
+        # rotated snapshot on radar, where a countdown ring is usually live
+        # (otherwise the ring's captured base hides a glyph drawn after it).
+        if self._power_menu_open:
+            if self._power_confirm is not None:
+                power_menu.draw_confirm(self.surface, self._power_confirm)
+            else:
+                power_menu.draw_menu(self.surface)
+        elif not self._manual_screen_off and self.screen in POWER_GLYPH_SCREENS:
+            power_menu.draw_glyph(self.surface)
         remaining = self._timeout_remaining_fraction()
         if remaining is not None:
             # Snapshot content+bezel (no ring) and a pre-rotated display base so
@@ -1149,14 +1160,6 @@ class RoundTouchDisplay:
             tracked.draw_tracking_cleared_popup(self.surface)
         else:
             tracked.clear_tracking_cleared_popup()
-        # Quick power menu: glyph on the idle faces, overlay/confirm on top.
-        if self._power_menu_open:
-            if self._power_confirm is not None:
-                power_menu.draw_confirm(self.surface, self._power_confirm)
-            else:
-                power_menu.draw_menu(self.surface)
-        elif not self._manual_screen_off and self.screen in POWER_GLYPH_SCREENS:
-            power_menu.draw_glyph(self.surface)
         self._draw_reboot_progress_overlay()
         _t = time.perf_counter()
         if not bezel_applied:

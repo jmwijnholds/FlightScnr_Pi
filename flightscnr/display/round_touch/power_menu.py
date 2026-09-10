@@ -35,19 +35,19 @@ _GHOST_FILL = (20, 40, 24)
 # (token, label key, hint key or None, style)
 _MENU_ROWS = (
     ("screen_off", "power.screen_off", "power.screen_off.hint", "normal"),
-    ("reboot", "settings.system.reboot", None, "warn"),
-    ("shutdown", "settings.system.shutdown", None, "danger"),
-    ("restart", "settings.system.restart", None, "ghost"),
+    ("reboot", "power.reboot", None, "warn"),
+    ("shutdown", "power.shutdown", None, "danger"),
+    ("restart", "power.restart", None, "ghost"),
 )
 
 # action -> (confirm title key, confirm detail key, confirm button label key, style)
 _CONFIRM = {
     "reboot": ("settings.confirm.reboot.title", "settings.confirm.reboot.detail",
-               "settings.system.reboot", "danger"),
+               "power.reboot", "danger"),
     "shutdown": ("settings.confirm.shutdown.title", "settings.confirm.shutdown.detail",
-                 "settings.system.shutdown", "danger"),
+                 "power.shutdown", "danger"),
     "restart": ("settings.confirm.restart.title", "settings.confirm.restart.detail",
-                "settings.system.restart", "normal"),
+                "power.restart", "normal"),
 }
 
 _menu_buttons: list[tuple[str, pygame.Rect]] = []
@@ -65,12 +65,16 @@ def _style_colors(style: str) -> tuple[tuple[int, int, int], tuple[int, int, int
 
 
 def glyph_center() -> tuple[int, int]:
-    """Where the persistent power glyph sits (lower centre, inside the rim)."""
-    return theme.CENTER_X, theme.CENTER_Y + int(theme.VISIBLE_RADIUS * 0.60)
+    """Where the persistent power glyph sits (lower-right, clear of the
+    clock's centred footer button and the radar HUD)."""
+    return (
+        theme.CENTER_X + int(theme.VISIBLE_RADIUS * 0.46),
+        theme.CENTER_Y + int(theme.VISIBLE_RADIUS * 0.46),
+    )
 
 
 def _glyph_radius() -> int:
-    return theme.s(24)
+    return theme.s(20)
 
 
 def _draw_power_symbol(surface, cx: int, cy: int, r: int, color, width: int) -> None:
@@ -103,22 +107,22 @@ def draw_menu(surface) -> None:
     draw.fill_background_textured(surface)
     cx = theme.CENTER_X
 
-    title_font = draw.load_font(theme.s(15), bold=True)
-    label_font = draw.load_font(theme.s(15), bold=True)
-    hint_font = draw.load_font(theme.s(11))
+    title_font = draw.load_font(theme.s(14), bold=True)
+    label_font = draw.load_font(theme.s(13), bold=True)
+    hint_font = draw.load_font(theme.s(10))
 
-    btn_w = min(theme.s(300), theme.VISIBLE_RADIUS * 2 - theme.s(70))
-    gap = theme.s(12)
+    btn_w = min(theme.s(230), theme.VISIBLE_RADIUS * 2 - theme.s(96))
+    gap = theme.s(9)
     heights = {
-        "screen_off": theme.s(58),
-        "reboot": theme.s(46),
-        "shutdown": theme.s(46),
-        "restart": theme.s(40),
+        "screen_off": theme.s(46),
+        "reboot": theme.s(38),
+        "shutdown": theme.s(38),
+        "restart": theme.s(34),
     }
     buttons_h = sum(heights[r[0]] for r in _MENU_ROWS) + gap * (len(_MENU_ROWS) - 1)
 
     title = title_font.render(tr("power.title"), True, theme.LABEL)
-    title_gap = theme.s(18)
+    title_gap = theme.s(14)
     block_h = title.get_height() + title_gap + buttons_h
     y = theme.CENTER_Y - block_h // 2
 
@@ -134,7 +138,7 @@ def draw_menu(surface) -> None:
         h = heights[token]
         rect = pygame.Rect(cx - btn_w // 2, int(y), btn_w, h)
         fill, border = _style_colors(style)
-        radius = theme.s(12)
+        radius = theme.s(9)
         pygame.draw.rect(surface, fill, rect, border_radius=radius)
         pygame.draw.rect(surface, border, rect, max(1, theme.s(2)), border_radius=radius)
         label = label_font.render(tr(label_key), True, theme.LABEL)

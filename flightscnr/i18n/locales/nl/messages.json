@@ -952,5 +952,8 @@
   "power.title": "Aan/uit",
   "power.screen_off": "Scherm uit",
   "power.screen_off.hint": "Verlichting uit, tik om te wekken",
-  "power.close_hint": "Tik ernaast om te sluiten"
+  "power.close_hint": "Tik ernaast om te sluiten",
+  "power.reboot": "Herstarten",
+  "power.shutdown": "Uitschakelen",
+  "power.restart": "App herstarten"
 }

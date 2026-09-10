@@ -952,5 +952,8 @@
   "power.title": "Power",
   "power.screen_off": "Screen off",
   "power.screen_off.hint": "Backlight off, tap to wake",
-  "power.close_hint": "Tap outside to close"
+  "power.close_hint": "Tap outside to close",
+  "power.reboot": "Reboot",
+  "power.shutdown": "Shut down",
+  "power.restart": "Restart app"
 }
