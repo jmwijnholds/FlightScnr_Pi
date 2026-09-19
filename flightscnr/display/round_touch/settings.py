@@ -81,15 +81,16 @@ TRAFFIC_LABEL_LABELS = {
     "both": "settings.opt.traffic_label.both",
     "off": "settings.opt.traffic_label.off",
 }
-# Radar aircraft identity line: marketing flight number, ATC callsign, or both
-# (time-alternating on the same line when they differ).
-AIRCRAFT_TAG_ID_MODES = ("flight_number", "callsign", "both")
+# Radar aircraft identity line: marketing flight number, ATC callsign, tail, or
+# time-alternating through whichever of those differ.
+AIRCRAFT_TAG_ID_MODES = ("flight_number", "callsign", "tail", "alternate")
 AIRCRAFT_TAG_ID_LABELS = {
     "flight_number": "settings.opt.tag_id.flight_number",
     "callsign": "settings.opt.tag_id.callsign",
-    "both": "settings.opt.tag_id.both",
+    "tail": "settings.opt.tag_id.tail",
+    "alternate": "settings.opt.tag_id.alternate",
 }
-# Seconds between identity swaps when aircraft_tag_id == both.
+# Seconds between identity swaps when aircraft_tag_id == alternate.
 AIRCRAFT_TAG_ID_ALTERNATE_S = 2.5
 # Split-flap board row identity: tail number, marketing flight, or ATC callsign.
 FLIP_BOARD_ID_MODES = ("tail", "flight_number", "callsign")
@@ -372,6 +373,8 @@ _defaults = {
     "custom_theme_rgb": list(color_presets.DEFAULT_CUSTOM_RGB),
     "runway_darkmap_rgb": list(color_presets.DEFAULT_RUNWAY_DARKMAP_RGB),
     "runway_light_rgb": list(color_presets.DEFAULT_RUNWAY_LIGHT_RGB),
+    "tag_text_dark_rgb": list(color_presets.DEFAULT_TAG_TEXT_DARK_RGB),
+    "tag_text_light_rgb": list(color_presets.DEFAULT_TAG_TEXT_LIGHT_RGB),
     "theme_palette_v": color_presets.THEME_PALETTE_V,
     "clock_12hr": True,
     # Requested UI language. Missing/invalid packs resolve to English at runtime.
@@ -863,7 +866,11 @@ def _load():
         state["traffic_labels"] = labels
     state["show_aircraft_tag"] = state["traffic_labels"] != "off"
     tag_id = str(state.get("aircraft_tag_id") or "").strip().lower()
-    if tag_id not in AIRCRAFT_TAG_ID_MODES:
+    if tag_id == "both":
+        # Legacy two-way alternate → three-way (flight / callsign / tail).
+        state["aircraft_tag_id"] = "alternate"
+        migrated = True
+    elif tag_id not in AIRCRAFT_TAG_ID_MODES:
         state["aircraft_tag_id"] = "flight_number"
         migrated = True
     else:
@@ -1250,6 +1257,8 @@ def _settings_snapshot(state: dict) -> tuple:
         tuple(color_presets.normalize_rgb(state.get("custom_theme_rgb"))),
         tuple(color_presets.normalize_rgb(state.get("runway_darkmap_rgb"))),
         tuple(color_presets.normalize_rgb(state.get("runway_light_rgb"))),
+        tuple(color_presets.normalize_rgb(state.get("tag_text_dark_rgb"))),
+        tuple(color_presets.normalize_rgb(state.get("tag_text_light_rgb"))),
         state.get("show_compass_rose"),
         state.get("show_range_rings"),
         state.get("color_by_altitude"),
@@ -2423,8 +2432,10 @@ def set_show_aircraft_tag(enabled: bool):
 
 
 def aircraft_tag_id() -> str:
-    """Aircraft tag identity: flight_number, callsign, or both (alternate)."""
+    """Aircraft tag identity: flight_number, callsign, tail, or alternate."""
     mode = str(_state.get("aircraft_tag_id") or "").strip().lower()
+    if mode == "both":
+        return "alternate"
     if mode in AIRCRAFT_TAG_ID_MODES:
         return mode
     return "flight_number"
@@ -2436,6 +2447,8 @@ def aircraft_tag_id_label() -> str:
 
 def set_aircraft_tag_id(mode: str) -> str:
     raw = str(mode or "").strip().lower()
+    if raw == "both":
+        raw = "alternate"
     if raw not in AIRCRAFT_TAG_ID_MODES:
         raw = "flight_number"
     _state["aircraft_tag_id"] = raw
@@ -2601,6 +2614,38 @@ def runway_light_rgb() -> tuple[int, int, int]:
 def set_runway_light_rgb(r: int, g: int, b: int, *, persist: bool = True):
     global _disk_synced
     _state["runway_light_rgb"] = list(color_presets.normalize_rgb((r, g, b)))
+    if persist:
+        _save(_state)
+    else:
+        _disk_synced = False
+    apply_theme_colors()
+
+
+def tag_text_dark_rgb() -> tuple[int, int, int]:
+    return color_presets.normalize_rgb(
+        _state.get("tag_text_dark_rgb", color_presets.DEFAULT_TAG_TEXT_DARK_RGB)
+    )
+
+
+def set_tag_text_dark_rgb(r: int, g: int, b: int, *, persist: bool = True):
+    global _disk_synced
+    _state["tag_text_dark_rgb"] = list(color_presets.normalize_rgb((r, g, b)))
+    if persist:
+        _save(_state)
+    else:
+        _disk_synced = False
+    apply_theme_colors()
+
+
+def tag_text_light_rgb() -> tuple[int, int, int]:
+    return color_presets.normalize_rgb(
+        _state.get("tag_text_light_rgb", color_presets.DEFAULT_TAG_TEXT_LIGHT_RGB)
+    )
+
+
+def set_tag_text_light_rgb(r: int, g: int, b: int, *, persist: bool = True):
+    global _disk_synced
+    _state["tag_text_light_rgb"] = list(color_presets.normalize_rgb((r, g, b)))
     if persist:
         _save(_state)
     else:
@@ -2821,6 +2866,8 @@ def apply_theme_colors():
     theme.TAG_ALT_DESCEND = (255, 0, 255)
     theme.RUNWAY_DARKMAP = runway_darkmap_rgb()
     theme.RUNWAY_LIGHT = runway_light_rgb()
+    theme.TAG_TEXT_DARK = tag_text_dark_rgb()
+    theme.TAG_TEXT_LIGHT = tag_text_light_rgb()
 
 
 def _night_quiet_defaults() -> tuple[str, str]:

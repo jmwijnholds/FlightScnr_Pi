@@ -1763,11 +1763,21 @@ def _theme_section_gaps() -> tuple[int, int, int]:
 RGB_GROUP_THEME = "theme"
 RGB_GROUP_RUNWAY = "runway"
 RGB_GROUP_RUNWAY_LIGHT = "runway_light"
-_RGB_GROUP_ORDER = (RGB_GROUP_THEME, RGB_GROUP_RUNWAY, RGB_GROUP_RUNWAY_LIGHT)
+RGB_GROUP_TEXT_DARK = "text_dark"
+RGB_GROUP_TEXT_LIGHT = "text_light"
+_RGB_GROUP_ORDER = (
+    RGB_GROUP_THEME,
+    RGB_GROUP_RUNWAY,
+    RGB_GROUP_RUNWAY_LIGHT,
+    RGB_GROUP_TEXT_DARK,
+    RGB_GROUP_TEXT_LIGHT,
+)
 _RGB_GROUP_TITLES = {
     RGB_GROUP_THEME: "settings.rgb.theme",
     RGB_GROUP_RUNWAY: "settings.rgb.runway",
     RGB_GROUP_RUNWAY_LIGHT: "settings.rgb.runway_light",
+    RGB_GROUP_TEXT_DARK: "settings.rgb.text_dark",
+    RGB_GROUP_TEXT_LIGHT: "settings.rgb.text_light",
 }
 
 
@@ -3616,10 +3626,14 @@ def draw_info(
         theme_rgb = settings.theme_rgb()
         runway_rgb = settings.runway_darkmap_rgb()
         runway_light_rgb = settings.runway_light_rgb()
+        text_dark_rgb = settings.tag_text_dark_rgb()
+        text_light_rgb = settings.tag_text_light_rgb()
         group_rgbs = {
             RGB_GROUP_THEME: theme_rgb,
             RGB_GROUP_RUNWAY: runway_rgb,
             RGB_GROUP_RUNWAY_LIGHT: runway_light_rgb,
+            RGB_GROUP_TEXT_DARK: text_dark_rgb,
+            RGB_GROUP_TEXT_LIGHT: text_light_rgb,
         }
         swatch_size = theme.s(18)
         track_w, slider_h, label_w, value_w = _theme_slider_metrics()
