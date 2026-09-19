@@ -936,6 +936,7 @@ class RoundTouchDisplay:
             and not self._panning_map
             and not self._pan_commit_choice
             and not radar_hud.volume_popover_open()
+            and not self._power_menu_open
         ):
             layer, layer_gen = radar.frame_layer_snapshot()
             if layer is not None:
