@@ -29,7 +29,7 @@ _HUD_DEPTH = (16, 34, 66)
 # Vertical anchors as a fraction of the dial (resolution independent).
 _WEATHER_CY = 0.235
 _TIME_CY = 0.47
-_SUN_CY = 0.835
+_SUN_CY = 0.775
 
 
 def _arc_points(cx, cy, r, a0_deg, a1_deg, n=16):
@@ -210,7 +210,7 @@ def _draw_time_block(surface) -> pygame.Rect:
     time_img, ampm_img, time_rect, ampm_rect = _time_layout()
     time_str, _ = _time_strings()
     glow = draw.load_font(theme.FONT_CLOCK, bold=True).render(time_str, True, _HUD_RING_HI)
-    _blit_glow(surface, glow, time_rect.center, alpha=60)
+    _blit_glow(surface, glow, time_rect.center, alpha=42)
     surface.blit(time_img, time_rect)
     if ampm_img is not None and ampm_rect is not None:
         surface.blit(ampm_img, ampm_rect)
@@ -218,7 +218,9 @@ def _draw_time_block(surface) -> pygame.Rect:
 
 
 def _draw_date(surface, time_rect) -> None:
-    date_str = _date_string().upper()
+    now = datetime.now()
+    date_str = _date_string(now).replace(",", "")
+    date_str = f"{date_str} {now.year}".upper()
     font = draw.load_font(theme.FONT_BODY)
     cy = time_rect.bottom + theme.s(4) + font.get_height() // 2
     _blit_spaced(surface, date_str, font, _HUD_RING_HI, (theme.CENTER_X, cy), theme.s(3))
