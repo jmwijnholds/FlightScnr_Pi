@@ -27,6 +27,20 @@ _HUD_TIME = (230, 244, 255)
 _HUD_SUB = (150, 190, 230)
 _HUD_SEC = (111, 168, 224)
 _HUD_DEPTH = (16, 34, 66)
+_HUD_DATE = (143, 184, 230)
+_HUD_COND = (127, 168, 216)
+_WX_ICON = (143, 196, 255)
+_WX_AMBER = (245, 182, 66)
+_WX_SUNSET = (95, 165, 255)
+_SUN_TXT = (159, 196, 230)
+
+# Font sizes as a fraction of the dial, matched to the design mockup's pixels.
+_TIME_FR = 0.183
+_SEC_FR = 0.047
+_DATE_FR = 0.0245
+_TEMP_FR = 0.0235
+_COND_FR = 0.0205
+_SUN_FR = 0.0205
 
 # Vertical anchors as a fraction of the dial (resolution independent).
 _WEATHER_CY = 0.235
@@ -113,15 +127,26 @@ def _draw_hud_frame(surface):
     pygame.draw.lines(surface, _HUD_RING_HI, False, _arc_points(cx, cy, r_arc, 72, 108), w2)
 
 
-def _blit_glow(surface, glow_img, center, alpha=60):
-    """Cheap bloom: translucent blue copies of the glyph around the anchor."""
-    d = theme.s(2)
-    d2 = theme.s(4)
-    offsets = ((-d2, 0), (d2, 0), (0, -d2), (0, d2), (-d, -d), (d, d), (-d, d), (d, -d))
-    g = glow_img.copy()
-    g.set_alpha(alpha)
-    for dx, dy in offsets:
-        surface.blit(g, g.get_rect(center=(center[0] + dx, center[1] + dy)))
+def _soft_glow(glow_img):
+    """Soft neon bloom from a coloured glyph via double downscale/upscale."""
+    w, h = glow_img.get_size()
+    pad = theme.s(14)
+    W, H = w + 2 * pad, h + 2 * pad
+    big = pygame.Surface((W, H), pygame.SRCALPHA)
+    big.blit(glow_img, (pad, pad))
+
+    def blur(div):
+        sm = pygame.transform.smoothscale(big, (max(1, W // div), max(1, H // div)))
+        return pygame.transform.smoothscale(sm, (W, H))
+
+    out = pygame.Surface((W, H), pygame.SRCALPHA)
+    b1 = blur(6)
+    b1.set_alpha(150)
+    out.blit(b1, (0, 0))
+    b2 = blur(12)
+    b2.set_alpha(120)
+    out.blit(b2, (0, 0))
+    return out
 
 
 def _blit_spaced(surface, text, font, color, center, spacing):
@@ -144,6 +169,144 @@ def _weather_code(wx):
         if days:
             code = days[0].get("weather_code")
     return code
+
+
+# ---------------------------------------------------------------------------
+# Thin-line weather glyphs, drawn at 4x and smooth-scaled down so they stay
+# crisp at the small sizes the mockup uses. Cached per (kind, size, colour).
+# ---------------------------------------------------------------------------
+_ICON_SS = 4
+_icon_cache: dict = {}
+
+
+def _cloud_fill(big, W, color, rscale=1.0, yshift=0.0):
+    for fx, fy, fr in ((0.32, 0.60, 0.20), (0.50, 0.45, 0.28), (0.68, 0.58, 0.22)):
+        pygame.draw.circle(big, color, (int(W * fx), int(W * (fy + yshift))), int(W * fr * rscale))
+    pygame.draw.rect(
+        big, color,
+        pygame.Rect(int(W * 0.32), int(W * (0.58 + yshift)), int(W * 0.36), int(W * 0.20 * rscale)),
+    )
+
+
+def _shape_cloud(big, W, color, stroke=0.10):
+    _cloud_fill(big, W, color, 1.0)
+    _cloud_fill(big, W, _HUD_BG, 1.0 - stroke * 2)
+
+
+def _shape_sun(big, W, color, stroke=0.12):
+    c = (W * 0.5, W * 0.5)
+    r = W * 0.24
+    pygame.draw.circle(big, color, (int(c[0]), int(c[1])), int(r))
+    pygame.draw.circle(big, _HUD_BG, (int(c[0]), int(c[1])), int(r - W * stroke))
+    rw = int(W * 0.09)
+    for ang in range(0, 360, 45):
+        a = math.radians(ang)
+        pygame.draw.line(
+            big, color,
+            (int(c[0] + (r + W * 0.07) * math.cos(a)), int(c[1] + (r + W * 0.07) * math.sin(a))),
+            (int(c[0] + (r + W * 0.19) * math.cos(a)), int(c[1] + (r + W * 0.19) * math.sin(a))),
+            rw,
+        )
+
+
+def _shape_partly(big, W, color, stroke=0.10):
+    sc = (W * 0.37, W * 0.35)
+    sr = W * 0.14
+    rw = int(W * 0.07)
+    for ang in range(0, 360, 45):
+        a = math.radians(ang)
+        pygame.draw.line(
+            big, color,
+            (int(sc[0] + (sr + W * 0.05) * math.cos(a)), int(sc[1] + (sr + W * 0.05) * math.sin(a))),
+            (int(sc[0] + (sr + W * 0.12) * math.cos(a)), int(sc[1] + (sr + W * 0.12) * math.sin(a))),
+            rw,
+        )
+    pygame.draw.circle(big, color, (int(sc[0]), int(sc[1])), int(sr))
+    pygame.draw.circle(big, _HUD_BG, (int(sc[0]), int(sc[1])), int(sr - W * stroke))
+    _cloud_fill(big, W, color, 1.0, yshift=0.12)
+    _cloud_fill(big, W, _HUD_BG, 1.0 - stroke * 2, yshift=0.12)
+
+
+def _shape_rain(big, W, color, stroke=0.10):
+    _cloud_fill(big, W, color, 1.0, yshift=-0.06)
+    _cloud_fill(big, W, _HUD_BG, 1.0 - stroke * 2, yshift=-0.06)
+    dw = max(1, int(W * 0.06))
+    for fx in (0.36, 0.5, 0.64):
+        pygame.draw.line(
+            big, color,
+            (int(W * fx), int(W * 0.72)), (int(W * (fx - 0.04)), int(W * 0.86)), dw,
+        )
+
+
+def _shape_moon(big, W, color, stroke=0.0):
+    c = (W * 0.52, W * 0.5)
+    r = W * 0.26
+    pygame.draw.circle(big, color, (int(c[0]), int(c[1])), int(r))
+    pygame.draw.circle(big, _HUD_BG, (int(c[0] + W * 0.14), int(c[1] - W * 0.06)), int(r))
+
+
+def _shape_horizon(big, W, color, up=True, stroke=0.085):
+    lw = int(W * stroke)
+    pygame.draw.line(big, color, (int(W * 0.12), int(W * 0.72)), (int(W * 0.88), int(W * 0.72)), lw)
+    r = W * 0.18
+    c = (W * 0.5, W * 0.72)
+    pygame.draw.arc(big, color, pygame.Rect(c[0] - r, c[1] - r, 2 * r, 2 * r), 0.0, math.pi, lw)
+    for ang in (200, 230, 270, 310, 340):
+        a = math.radians(ang)
+        pygame.draw.line(
+            big, color,
+            (int(c[0] + (r + W * 0.05) * math.cos(a)), int(c[1] + (r + W * 0.05) * math.sin(a))),
+            (int(c[0] + (r + W * 0.14) * math.cos(a)), int(c[1] + (r + W * 0.14) * math.sin(a))),
+            max(1, lw - 1),
+        )
+    ax, ay, aw = W * 0.5, W * 0.26, W * 0.07
+    if up:
+        pts = [(int(ax - aw), int(ay + aw)), (int(ax), int(ay - aw)), (int(ax + aw), int(ay + aw))]
+    else:
+        pts = [(int(ax - aw), int(ay - aw)), (int(ax), int(ay + aw)), (int(ax + aw), int(ay - aw))]
+    pygame.draw.lines(big, color, False, pts, lw)
+
+
+def _icon(kind, size, color):
+    key = (kind, size, tuple(color))
+    surf = _icon_cache.get(key)
+    if surf is None:
+        big = pygame.Surface((size * _ICON_SS, size * _ICON_SS), pygame.SRCALPHA)
+        W = size * _ICON_SS
+        if kind == "sun":
+            _shape_sun(big, W, color)
+        elif kind == "partly":
+            _shape_partly(big, W, color)
+        elif kind == "rain":
+            _shape_rain(big, W, color)
+        elif kind == "moon":
+            _shape_moon(big, W, color)
+        elif kind == "sunrise":
+            _shape_horizon(big, W, color, up=True)
+        elif kind == "sunset":
+            _shape_horizon(big, W, color, up=False)
+        else:
+            _shape_cloud(big, W, color)
+        surf = pygame.transform.smoothscale(big, (size, size))
+        _icon_cache[key] = surf
+    return surf
+
+
+def _wx_icon_kind(code, night: bool) -> str:
+    if code is None:
+        return "cloud"
+    c = int(code)
+    if c == 1000:
+        return "moon" if night else "sun"
+    if c in (1100, 1101, 1102, 1103):
+        return "moon" if night else "partly"
+    if 4000 <= c < 5000:
+        return "rain"
+    return "cloud"
+
+
+def _blit_icon(surface, img, cx, cy):
+    surface.blit(img, img.get_rect(center=(int(cx), int(cy))))
 
 # The footer slot now holds the power icon (drawn by the app); return to the
 # radar is a swipe up. No radar button here.
@@ -222,7 +385,11 @@ def _seconds_string(now: datetime | None = None) -> str:
 
 
 def _time_px() -> int:
-    return theme.s(70)
+    return int(theme.SIZE * _TIME_FR)
+
+
+def _sec_px() -> int:
+    return int(theme.SIZE * _SEC_FR)
 
 
 def _time_layout():
@@ -230,7 +397,7 @@ def _time_layout():
     (time_img, accent_img, time_rect, accent_rect) where the accent is the
     AM/PM label (12-hour) or the live seconds (24-hour)."""
     time_font = _sg(_time_px(), "medium")
-    accent_font = _sg(theme.FONT_CLOCK_AMPM, "medium")
+    accent_font = _sg(_sec_px(), "regular")
     time_str, ampm = _time_strings()
     time_img = time_font.render(time_str, True, _HUD_TIME)
     if ampm:
@@ -255,8 +422,9 @@ def _time_layout():
 def _draw_time_block(surface) -> pygame.Rect:
     time_img, accent_img, time_rect, accent_rect = _time_layout()
     time_str, _ = _time_strings()
-    glow = _sg(_time_px(), "medium").render(time_str, True, _HUD_RING_HI)
-    _blit_glow(surface, glow, time_rect.center, alpha=42)
+    glow_img = _sg(_time_px(), "medium").render(time_str, True, _HUD_RING_HI)
+    glow = _soft_glow(glow_img)
+    surface.blit(glow, glow.get_rect(center=time_rect.center))
     surface.blit(time_img, time_rect)
     surface.blit(accent_img, accent_rect)
     return time_rect
@@ -266,31 +434,30 @@ def _draw_date(surface, time_rect) -> None:
     now = datetime.now()
     date_str = _date_string(now).replace(",", "")
     date_str = f"{date_str} {now.year}".upper()
-    font = _sg(theme.s(20), "regular")
-    cy = time_rect.bottom + theme.s(6) + font.get_height() // 2
-    _blit_spaced(surface, date_str, font, _HUD_RING_HI, (theme.CENTER_X, cy), theme.s(4))
+    font = _sg(int(theme.SIZE * _DATE_FR), "regular")
+    cy = time_rect.bottom + theme.s(8) + font.get_height() // 2
+    _blit_spaced(surface, date_str, font, _HUD_DATE, (theme.CENTER_X, cy), theme.s(4))
 
 
 def _draw_weather_pill(surface, wx) -> None:
     temp = wx.get("temp")
     if temp is None:
         return
-    unit = wx.get("unit") or "C"
     code = _weather_code(wx)
     night = weather_icons.is_night(wx.get("sunrise"), wx.get("sunset"))
 
-    temp_font = _sg(theme.FONT_BODY, "bold")
-    cond_font = _sg(theme.FONT_DETAIL, "regular")
-    temp_img = temp_font.render(f"{int(round(temp))}°{unit}", True, _HUD_TIME)
+    temp_font = _sg(int(theme.SIZE * _TEMP_FR), "medium")
+    cond_font = _sg(int(theme.SIZE * _COND_FR), "regular")
+    temp_img = temp_font.render(f"{int(round(temp))}°", True, _HUD_TIME)
     cond = wx.get("weather_label") or ""
     if cond == "—":
         cond = ""
 
-    icon_size = theme.s(22)
-    pad_x = theme.s(16)
-    gap = theme.s(9)
+    icon_size = int(theme.SIZE * 0.030)
+    pad_x = theme.s(15)
+    gap = theme.s(8)
     cy = int(theme.SIZE * _WEATHER_CY)
-    pill_h = max(icon_size, temp_img.get_height()) + theme.s(12)
+    pill_h = max(icon_size, temp_img.get_height()) + theme.s(10)
 
     # Fit the condition text to whatever room the round dial leaves here.
     max_pill_w = int(draw.circle_half_width_at_row(cy, pill_h) * 2) - theme.s(24)
@@ -300,7 +467,7 @@ def _draw_weather_pill(surface, wx) -> None:
         avail = max_pill_w - base_w - gap
         if avail > theme.s(20):
             cond = draw.fit_text(cond, cond_font, avail)
-            cond_img = cond_font.render(cond, True, _HUD_SUB)
+            cond_img = cond_font.render(cond, True, _HUD_COND)
 
     content_w = icon_size + gap + temp_img.get_width()
     if cond_img is not None:
@@ -316,7 +483,7 @@ def _draw_weather_pill(surface, wx) -> None:
     surface.blit(chip, (pill_x, pill_y))
 
     x = pill_x + pad_x
-    weather_icons.draw_icon(surface, code, (x + icon_size // 2, cy), icon_size, _HUD_RING_HI, night=night)
+    _blit_icon(surface, _icon(_wx_icon_kind(code, night), icon_size, _WX_ICON), x + icon_size // 2, cy)
     x += icon_size + gap
     surface.blit(temp_img, temp_img.get_rect(midleft=(x, cy)))
     if cond_img is not None:
@@ -329,20 +496,22 @@ def _draw_sun_chips(surface, wx) -> None:
     sunset = _format_sun_time(wx.get("sunset"))
     if sunrise == "—" and sunset == "—":
         return
-    detail = _sg(theme.FONT_DETAIL, "regular")
-    row_h = max(weather_icons.sun_icon_size(), detail.get_height())
-    top = int(theme.SIZE * _SUN_CY) - row_h // 2
-    offset = theme.s(48)
+    font = _sg(int(theme.SIZE * _SUN_FR), "regular")
+    icon_size = int(theme.SIZE * 0.026)
+    mid_y = int(theme.SIZE * _SUN_CY)
+    offset = theme.s(46)
+    gap = theme.s(5)
+    chips = []
     if sunrise != "—":
-        weather_icons.draw_sun_group(
-            surface, theme.CENTER_X - offset, top, sunrise,
-            sunset=False, font=detail, color=_HUD_SUB,
-        )
+        chips.append((theme.CENTER_X - offset, "sunrise", _WX_AMBER, sunrise))
     if sunset != "—":
-        weather_icons.draw_sun_group(
-            surface, theme.CENTER_X + offset, top, sunset,
-            sunset=True, font=detail, color=_HUD_SUB,
-        )
+        chips.append((theme.CENTER_X + offset, "sunset", _WX_SUNSET, sunset))
+    for center_x, kind, color, text in chips:
+        text_img = font.render(text, True, _SUN_TXT)
+        total_w = icon_size + gap + text_img.get_width()
+        left = center_x - total_w // 2
+        _blit_icon(surface, _icon(kind, icon_size, color), left + icon_size // 2, mid_y)
+        surface.blit(text_img, text_img.get_rect(midleft=(left + icon_size + gap, mid_y)))
 
 
 def _weather_row_height(wx, body_font, detail_font) -> int:
