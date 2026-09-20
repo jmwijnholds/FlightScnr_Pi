@@ -324,7 +324,7 @@ def draw_clock(surface):
     y = _clock_start_y()
     y = _draw_time_block(surface, y)
     y += _AFTER_TIME()
-    y = _center_line(surface, y, date_str, body_font, theme.LABEL)
+    y = _center_line(surface, y, date_str, body_font, _HUD_RING_HI)
 
     if wx and wx.get("ready") and wx.get("temp") is not None and y < limit_y:
         y += _SECTION_GAP()
