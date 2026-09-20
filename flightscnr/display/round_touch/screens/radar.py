@@ -592,10 +592,50 @@ def draw_radar(
     return bezel_applied
 
 
+# 2030 AR-HUD chrome accents (blue), matched to the radar design mockup.
+_HUD_ACCENT = (143, 196, 255)
+_HUD_ACCENT_DIM = (77, 159, 255)
+
+
+def _hud_arc_points(cx, cy, r, a0_deg, a1_deg, n=20):
+    pts = []
+    for i in range(n + 1):
+        a = math.radians(a0_deg + (a1_deg - a0_deg) * i / n)
+        pts.append((int(cx + r * math.cos(a)), int(cy + r * math.sin(a))))
+    return pts
+
+
+def _draw_hud_cardinals(surface, facing: float) -> None:
+    """N/E/S/W labels, cardinal ticks and top/bottom arc accents (mockup HUD)."""
+    cx, cy = theme.CENTER_X, theme.CENTER_Y
+    r = theme.GRID_OUTER_RADIUS
+    w1 = max(1, theme.s(1))
+    # Cardinal ticks + letters, tracking true north (rotate with facing).
+    font = draw.load_font(theme.FONT_CARDINAL, bold=True)
+    tick = theme.s(9)
+    for text, bearing in (("N", 0), ("E", 90), ("S", 180), ("W", 270)):
+        rad = math.radians(bearing - facing - 90)
+        ca, sa = math.cos(rad), math.sin(rad)
+        pygame.draw.line(
+            surface, _HUD_ACCENT_DIM,
+            (int(cx + (r - tick) * ca), int(cy + (r - tick) * sa)),
+            (int(cx + r * ca), int(cy + r * sa)), w1,
+        )
+        lx = int(cx + (r - theme.s(24)) * ca)
+        ly = int(cy + (r - theme.s(24)) * sa)
+        surface.blit(font.render(text, True, _HUD_ACCENT), font.render(text, True, _HUD_ACCENT).get_rect(center=(lx, ly)))
+    # Bright top/bottom arc accents (fixed screen chrome).
+    w2 = max(2, theme.s(2))
+    pygame.draw.lines(surface, _HUD_ACCENT, False, _hud_arc_points(cx, cy, r, -108, -72), w2)
+    pygame.draw.lines(surface, _HUD_ACCENT, False, _hud_arc_points(cx, cy, r, 72, 108), w2)
+
+
 def _draw_grid(surface, *, calibrate: bool = False):
     center = (theme.CENTER_X, theme.CENTER_Y)
     line_w = max(1, theme.s(2))
     facing = settings.effective_facing_deg()
+    if not calibrate and not settings.show_compass_rose():
+        _draw_hud_cardinals(surface, facing)
     if settings.show_range_rings():
         # Rings sit at round distances (scale.ring_values), not exact thirds.
         ring_vals = scale.ring_values(scale.active_index())
