@@ -35,7 +35,7 @@ _WX_SUNSET = (95, 165, 255)
 _SUN_TXT = (159, 196, 230)
 
 # Font sizes as a fraction of the dial, matched to the design mockup's pixels.
-_TIME_FR = 0.183
+_TIME_FR = 0.190
 _SEC_FR = 0.047
 _DATE_FR = 0.0245
 _TEMP_FR = 0.0235
@@ -44,8 +44,8 @@ _SUN_FR = 0.0205
 
 # Vertical anchors as a fraction of the dial (resolution independent).
 _WEATHER_CY = 0.235
-_TIME_CY = 0.47
-_SUN_CY = 0.775
+_TIME_CY = 0.50
+_SUN_CY = 0.80
 
 # Space Grotesk (bundled, OFL) — the clock face's display typeface.
 _SG_DIR = os.path.join(
@@ -130,7 +130,7 @@ def _draw_hud_frame(surface):
 def _soft_glow(glow_img):
     """Soft neon bloom from a coloured glyph via double downscale/upscale."""
     w, h = glow_img.get_size()
-    pad = theme.s(14)
+    pad = theme.s(10)
     W, H = w + 2 * pad, h + 2 * pad
     big = pygame.Surface((W, H), pygame.SRCALPHA)
     big.blit(glow_img, (pad, pad))
@@ -140,12 +140,27 @@ def _soft_glow(glow_img):
         return pygame.transform.smoothscale(sm, (W, H))
 
     out = pygame.Surface((W, H), pygame.SRCALPHA)
-    b1 = blur(6)
-    b1.set_alpha(150)
+    b1 = blur(4)
+    b1.set_alpha(95)
     out.blit(b1, (0, 0))
-    b2 = blur(12)
-    b2.set_alpha(120)
+    b2 = blur(9)
+    b2.set_alpha(70)
     out.blit(b2, (0, 0))
+    return out
+
+
+def _render_tracked(font, text, color, spacing):
+    """Render text into one surface with extra letter spacing between glyphs."""
+    imgs = [font.render(ch, True, color) for ch in text]
+    if not imgs:
+        return pygame.Surface((0, 0), pygame.SRCALPHA)
+    h = max(im.get_height() for im in imgs)
+    w = sum(im.get_width() for im in imgs) + spacing * (len(imgs) - 1)
+    out = pygame.Surface((w, h), pygame.SRCALPHA)
+    x = 0
+    for im in imgs:
+        out.blit(im, (x, 0))
+        x += im.get_width() + spacing
     return out
 
 
@@ -245,26 +260,23 @@ def _shape_moon(big, W, color, stroke=0.0):
     pygame.draw.circle(big, _HUD_BG, (int(c[0] + W * 0.14), int(c[1] - W * 0.06)), int(r))
 
 
-def _shape_horizon(big, W, color, up=True, stroke=0.085):
+def _shape_horizon(big, W, color, up=True, stroke=0.075):
     lw = int(W * stroke)
-    pygame.draw.line(big, color, (int(W * 0.12), int(W * 0.72)), (int(W * 0.88), int(W * 0.72)), lw)
-    r = W * 0.18
-    c = (W * 0.5, W * 0.72)
-    pygame.draw.arc(big, color, pygame.Rect(c[0] - r, c[1] - r, 2 * r, 2 * r), 0.0, math.pi, lw)
-    for ang in (200, 230, 270, 310, 340):
+    # ground line
+    pygame.draw.line(big, color, (int(W * 0.10), int(W * 0.70)), (int(W * 0.90), int(W * 0.70)), lw)
+    # sun disc just above the horizon (ring), with rays fanning up
+    r = W * 0.19
+    c = (W * 0.5, W * 0.62)
+    pygame.draw.circle(big, color, (int(c[0]), int(c[1])), int(r))
+    pygame.draw.circle(big, _HUD_BG, (int(c[0]), int(c[1])), int(r - W * 0.075))
+    for ang in (200, 225, 270, 315, 340):
         a = math.radians(ang)
         pygame.draw.line(
             big, color,
             (int(c[0] + (r + W * 0.05) * math.cos(a)), int(c[1] + (r + W * 0.05) * math.sin(a))),
-            (int(c[0] + (r + W * 0.14) * math.cos(a)), int(c[1] + (r + W * 0.14) * math.sin(a))),
+            (int(c[0] + (r + W * 0.13) * math.cos(a)), int(c[1] + (r + W * 0.13) * math.sin(a))),
             max(1, lw - 1),
         )
-    ax, ay, aw = W * 0.5, W * 0.26, W * 0.07
-    if up:
-        pts = [(int(ax - aw), int(ay + aw)), (int(ax), int(ay - aw)), (int(ax + aw), int(ay + aw))]
-    else:
-        pts = [(int(ax - aw), int(ay - aw)), (int(ax), int(ay + aw)), (int(ax + aw), int(ay - aw))]
-    pygame.draw.lines(big, color, False, pts, lw)
 
 
 def _icon(kind, size, color):
@@ -298,8 +310,10 @@ def _wx_icon_kind(code, night: bool) -> str:
     c = int(code)
     if c == 1000:
         return "moon" if night else "sun"
-    if c in (1100, 1101, 1102, 1103):
-        return "moon" if night else "partly"
+    if c == 1100:
+        return "moon" if night else "sun"
+    if c in (1101, 1102, 1103):
+        return "cloud"
     if 4000 <= c < 5000:
         return "rain"
     return "cloud"
@@ -396,10 +410,11 @@ def _time_layout():
     """Geometry for the centred time block. Returns
     (time_img, accent_img, time_rect, accent_rect) where the accent is the
     AM/PM label (12-hour) or the live seconds (24-hour)."""
-    time_font = _sg(_time_px(), "medium")
+    time_font = _sg(_time_px(), "bold")
     accent_font = _sg(_sec_px(), "regular")
     time_str, ampm = _time_strings()
-    time_img = time_font.render(time_str, True, _HUD_TIME)
+    track = theme.s(4)
+    time_img = _render_tracked(time_font, time_str, _HUD_TIME, track)
     if ampm:
         accent_img = accent_font.render(ampm, True, _HUD_RING_HI)
     else:
@@ -407,9 +422,9 @@ def _time_layout():
 
     center_y = int(theme.SIZE * _TIME_CY)
     gap = theme.s(10)
-    total_w = time_img.get_width() + gap + accent_img.get_width()
-    left = theme.CENTER_X - total_w // 2
-    time_rect = time_img.get_rect(midleft=(left, center_y))
+    # Centre the time itself on the axis; the accent overhangs to the right so
+    # the big digits line up with the pill and sun chips.
+    time_rect = time_img.get_rect(center=(theme.CENTER_X, center_y))
 
     # Baseline-align the accent with the main digits.
     baseline = time_rect.top + time_font.get_ascent()
@@ -422,7 +437,7 @@ def _time_layout():
 def _draw_time_block(surface) -> pygame.Rect:
     time_img, accent_img, time_rect, accent_rect = _time_layout()
     time_str, _ = _time_strings()
-    glow_img = _sg(_time_px(), "medium").render(time_str, True, _HUD_RING_HI)
+    glow_img = _render_tracked(_sg(_time_px(), "bold"), time_str, _HUD_RING_HI, theme.s(4))
     glow = _soft_glow(glow_img)
     surface.blit(glow, glow.get_rect(center=time_rect.center))
     surface.blit(time_img, time_rect)
@@ -499,7 +514,7 @@ def _draw_sun_chips(surface, wx) -> None:
     font = _sg(int(theme.SIZE * _SUN_FR), "regular")
     icon_size = int(theme.SIZE * 0.026)
     mid_y = int(theme.SIZE * _SUN_CY)
-    offset = theme.s(46)
+    offset = theme.s(40)
     gap = theme.s(5)
     chips = []
     if sunrise != "—":
