@@ -11,6 +11,7 @@
 
 from datetime import datetime
 import math
+import os
 
 import pygame
 
@@ -24,12 +25,44 @@ _HUD_RING = (40, 80, 138)
 _HUD_RING_HI = (120, 180, 255)
 _HUD_TIME = (230, 244, 255)
 _HUD_SUB = (150, 190, 230)
+_HUD_SEC = (111, 168, 224)
 _HUD_DEPTH = (16, 34, 66)
 
 # Vertical anchors as a fraction of the dial (resolution independent).
 _WEATHER_CY = 0.235
 _TIME_CY = 0.47
 _SUN_CY = 0.775
+
+# Space Grotesk (bundled, OFL) — the clock face's display typeface.
+_SG_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+    "fonts",
+    "space_grotesk",
+)
+_SG_FILES = {
+    "light": "SpaceGrotesk-Light.ttf",
+    "regular": "SpaceGrotesk-Regular.ttf",
+    "medium": "SpaceGrotesk-Medium.ttf",
+    "bold": "SpaceGrotesk-Bold.ttf",
+}
+_sg_cache: dict = {}
+
+
+def _sg(size: int, weight: str = "medium") -> pygame.font.Font:
+    """Load a bundled Space Grotesk weight, falling back to the UI font."""
+    if not pygame.font.get_init():
+        pygame.font.init()
+        _sg_cache.clear()
+    key = (size, weight)
+    font = _sg_cache.get(key)
+    if font is None:
+        path = os.path.join(_SG_DIR, _SG_FILES.get(weight, _SG_FILES["medium"]))
+        try:
+            font = pygame.font.Font(path, size)
+        except (OSError, pygame.error):
+            font = draw.load_font(size, bold=weight in ("medium", "bold"))
+        _sg_cache[key] = font
+    return font
 
 
 def _arc_points(cx, cy, r, a0_deg, a1_deg, n=16):
@@ -184,36 +217,48 @@ def _clock_start_y() -> int:
     return nav.content_top_y() - theme.s(28)
 
 
+def _seconds_string(now: datetime | None = None) -> str:
+    return (now or datetime.now()).strftime("%S")
+
+
+def _time_px() -> int:
+    return theme.s(70)
+
+
 def _time_layout():
     """Geometry for the centred time block. Returns
-    (time_img, ampm_img|None, time_rect, ampm_rect|None)."""
-    time_font = draw.load_font(theme.FONT_CLOCK, bold=True)
+    (time_img, accent_img, time_rect, accent_rect) where the accent is the
+    AM/PM label (12-hour) or the live seconds (24-hour)."""
+    time_font = _sg(_time_px(), "medium")
+    accent_font = _sg(theme.FONT_CLOCK_AMPM, "medium")
     time_str, ampm = _time_strings()
     time_img = time_font.render(time_str, True, _HUD_TIME)
-    center_y = int(theme.SIZE * _TIME_CY)
-
     if ampm:
-        ampm_font = draw.load_font(theme.FONT_CLOCK_AMPM, bold=True)
-        ampm_img = ampm_font.render(ampm, True, _HUD_RING_HI)
-        gap = theme.s(8)
-        total_w = time_img.get_width() + gap + ampm_img.get_width()
-        left = theme.CENTER_X - total_w // 2
-        time_rect = time_img.get_rect(midleft=(left, center_y))
-        ampm_rect = ampm_img.get_rect(bottomleft=(time_rect.right + gap, time_rect.bottom))
-        return time_img, ampm_img, time_rect, ampm_rect
+        accent_img = accent_font.render(ampm, True, _HUD_RING_HI)
+    else:
+        accent_img = accent_font.render(_seconds_string(), True, _HUD_SEC)
 
-    time_rect = time_img.get_rect(center=(theme.CENTER_X, center_y))
-    return time_img, None, time_rect, None
+    center_y = int(theme.SIZE * _TIME_CY)
+    gap = theme.s(10)
+    total_w = time_img.get_width() + gap + accent_img.get_width()
+    left = theme.CENTER_X - total_w // 2
+    time_rect = time_img.get_rect(midleft=(left, center_y))
+
+    # Baseline-align the accent with the main digits.
+    baseline = time_rect.top + time_font.get_ascent()
+    accent_rect = accent_img.get_rect()
+    accent_rect.left = time_rect.right + gap
+    accent_rect.top = baseline - accent_font.get_ascent()
+    return time_img, accent_img, time_rect, accent_rect
 
 
 def _draw_time_block(surface) -> pygame.Rect:
-    time_img, ampm_img, time_rect, ampm_rect = _time_layout()
+    time_img, accent_img, time_rect, accent_rect = _time_layout()
     time_str, _ = _time_strings()
-    glow = draw.load_font(theme.FONT_CLOCK, bold=True).render(time_str, True, _HUD_RING_HI)
+    glow = _sg(_time_px(), "medium").render(time_str, True, _HUD_RING_HI)
     _blit_glow(surface, glow, time_rect.center, alpha=42)
     surface.blit(time_img, time_rect)
-    if ampm_img is not None and ampm_rect is not None:
-        surface.blit(ampm_img, ampm_rect)
+    surface.blit(accent_img, accent_rect)
     return time_rect
 
 
@@ -221,9 +266,9 @@ def _draw_date(surface, time_rect) -> None:
     now = datetime.now()
     date_str = _date_string(now).replace(",", "")
     date_str = f"{date_str} {now.year}".upper()
-    font = draw.load_font(theme.FONT_BODY)
-    cy = time_rect.bottom + theme.s(4) + font.get_height() // 2
-    _blit_spaced(surface, date_str, font, _HUD_RING_HI, (theme.CENTER_X, cy), theme.s(3))
+    font = _sg(theme.s(20), "regular")
+    cy = time_rect.bottom + theme.s(6) + font.get_height() // 2
+    _blit_spaced(surface, date_str, font, _HUD_RING_HI, (theme.CENTER_X, cy), theme.s(4))
 
 
 def _draw_weather_pill(surface, wx) -> None:
@@ -234,8 +279,8 @@ def _draw_weather_pill(surface, wx) -> None:
     code = _weather_code(wx)
     night = weather_icons.is_night(wx.get("sunrise"), wx.get("sunset"))
 
-    temp_font = draw.load_font(theme.FONT_BODY, bold=True)
-    cond_font = draw.load_font(theme.FONT_DETAIL)
+    temp_font = _sg(theme.FONT_BODY, "bold")
+    cond_font = _sg(theme.FONT_DETAIL, "regular")
     temp_img = temp_font.render(f"{int(round(temp))}°{unit}", True, _HUD_TIME)
     cond = wx.get("weather_label") or ""
     if cond == "—":
@@ -284,7 +329,7 @@ def _draw_sun_chips(surface, wx) -> None:
     sunset = _format_sun_time(wx.get("sunset"))
     if sunrise == "—" and sunset == "—":
         return
-    detail = draw.load_font(theme.FONT_DETAIL)
+    detail = _sg(theme.FONT_DETAIL, "regular")
     row_h = max(weather_icons.sun_icon_size(), detail.get_height())
     top = int(theme.SIZE * _SUN_CY) - row_h // 2
     offset = theme.s(48)
@@ -441,9 +486,9 @@ def _draw_moon_row(surface, y: int, detail_font) -> int:
 
 
 def time_tap_rect() -> pygame.Rect:
-    _, _, time_rect, ampm_rect = _time_layout()
-    if ampm_rect is not None:
-        return time_rect.union(ampm_rect)
+    _, _, time_rect, accent_rect = _time_layout()
+    if accent_rect is not None:
+        return time_rect.union(accent_rect)
     return time_rect
 
 

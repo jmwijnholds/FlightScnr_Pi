@@ -5187,9 +5187,12 @@ class RoundTouchDisplay:
                 self._safe_draw()
             return
         minute = time.localtime().tm_min + time.localtime().tm_hour * 60
+        # The digital clock shows live seconds, so refresh it every second;
+        # other screens on this path only need the 2s heartbeat.
+        interval = 1.0 if self.screen == SCREEN_CLOCK else 2.0
         if (
             minute != self._last_clock_minute
-            or (now - self._last_clock_draw) >= 2.0
+            or (now - self._last_clock_draw) >= interval
         ):
             self._last_clock_minute = minute
             self._last_clock_draw = now
