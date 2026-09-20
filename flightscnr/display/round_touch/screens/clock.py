@@ -10,11 +10,41 @@
 """Clock screen with weather (FlightScnr clock screen)."""
 
 from datetime import datetime
+import math
 
 import pygame
 
 from display.round_touch import draw, nav, settings, theme, weather_data, weather_icons
 from i18n import format_date
+
+# 2030 AR-HUD reskin palette (clock face).
+_HUD_BG = (5, 9, 18)
+_HUD_ECHO = (16, 30, 54)
+_HUD_RING = (40, 80, 138)
+_HUD_RING_HI = (120, 180, 255)
+_HUD_TIME = (230, 244, 255)
+
+
+def _arc_points(cx, cy, r, a0_deg, a1_deg, n=16):
+    pts = []
+    for i in range(n + 1):
+        a = math.radians(a0_deg + (a1_deg - a0_deg) * i / n)
+        pts.append((int(cx + r * math.cos(a)), int(cy + r * math.sin(a))))
+    return pts
+
+
+def _draw_hud_frame(surface):
+    """Dark blue-black base with a thin HUD ring and top/bottom arc accents."""
+    surface.fill(_HUD_BG)
+    cx, cy, R = theme.CENTER_X, theme.CENTER_Y, theme.VISIBLE_RADIUS
+    w1 = max(1, theme.s(1))
+    pygame.draw.circle(surface, _HUD_ECHO, (cx, cy), int(R * 0.44), w1)
+    pygame.draw.circle(surface, _HUD_ECHO, (cx, cy), int(R * 0.72), w1)
+    r_arc = R - theme.s(6)
+    pygame.draw.circle(surface, _HUD_RING, (cx, cy), r_arc, w1)
+    w2 = max(2, theme.s(2))
+    pygame.draw.lines(surface, _HUD_RING_HI, False, _arc_points(cx, cy, r_arc, -108, -72), w2)
+    pygame.draw.lines(surface, _HUD_RING_HI, False, _arc_points(cx, cy, r_arc, 72, 108), w2)
 
 # The footer slot now holds the power icon (drawn by the app); return to the
 # radar is a swipe up. No radar button here.
@@ -95,8 +125,8 @@ def _draw_time_block(surface, y: int) -> int:
 
     if ampm:
         gap = theme.s(8)
-        time_img = time_font.render(time_str, True, theme.SWEEP)
-        ampm_img = ampm_font.render(ampm, True, theme.SWEEP)
+        time_img = time_font.render(time_str, True, _HUD_TIME)
+        ampm_img = ampm_font.render(ampm, True, _HUD_RING_HI)
         total_w = time_img.get_width() + gap + ampm_img.get_width()
         x = theme.CENTER_X - total_w // 2
         time_y = y
@@ -105,7 +135,7 @@ def _draw_time_block(surface, y: int) -> int:
         surface.blit(ampm_img, (x + time_img.get_width() + gap, ampm_y))
         return max(time_y + time_img.get_height(), ampm_y + ampm_img.get_height())
 
-    rendered = time_font.render(time_str, True, theme.SWEEP)
+    rendered = time_font.render(time_str, True, _HUD_TIME)
     rect = rendered.get_rect(midtop=(theme.CENTER_X, y))
     surface.blit(rendered, rect)
     return rect.bottom
@@ -282,7 +312,7 @@ def tap_on_time(x: int, y: int) -> bool:
 
 
 def draw_clock(surface):
-    draw.fill_background_textured(surface)
+    _draw_hud_frame(surface)
 
     wx = weather_data.refresh() or weather_data.snapshot()
     date_str = _date_string()
