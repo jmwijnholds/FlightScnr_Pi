@@ -2859,8 +2859,9 @@ def apply_theme_colors():
     theme.LABEL = palette["label"]
     # Fixed radar chrome (FlightScnr radar_theme.h).
     theme.BG = (2, 15, 3)
-    theme.AIRCRAFT = (255, 180, 40)
-    theme.AIRCRAFT_UNKNOWN = (150, 100, 28)
+    # 2030 AR-HUD redesign: aircraft read white-blue instead of radar amber.
+    theme.AIRCRAFT = (230, 244, 255)
+    theme.AIRCRAFT_UNKNOWN = (150, 178, 214)
     theme.TAG_TYPE = (255, 200, 0)
     theme.TAG_ALT_ASCEND = (0, 255, 255)
     theme.TAG_ALT_DESCEND = (255, 0, 255)

@@ -137,16 +137,15 @@ _apply_framebuffer_side(square_framebuffer_side())
 
 # Colors (FlightScnr radar_theme.h)
 BG = (2, 15, 3)
-# 2030 AR-HUD redesign: the radar chrome is blue, aircraft read white-blue.
-GRID = (46, 108, 170)
+GRID = (16, 100, 32)
 PAGE_DOT_INACTIVE = (8, 42, 14)
 CROSSHAIR = GRID
-SWEEP = (150, 200, 255)
-SWEEP_TRAIL = (18, 46, 84)
+SWEEP = (48, 255, 96)
+SWEEP_TRAIL = (12, 72, 28)
 LABEL = (255, 255, 255)
-AIRCRAFT = (230, 244, 255)
-# Unmapped ICAO type / blank type — dimmer so known traffic stays punchy.
-AIRCRAFT_UNKNOWN = (150, 178, 214)
+AIRCRAFT = (255, 180, 40)
+# Unmapped ICAO type / blank type — darker so known traffic stays punchy.
+AIRCRAFT_UNKNOWN = (150, 100, 28)
 TAG_TYPE = (255, 200, 0)
 TAG_ALT_ASCEND = (0, 255, 255)
 TAG_ALT_DESCEND = (255, 0, 255)
@@ -165,7 +164,7 @@ RUNWAY_DARKMAP = (225, 128, 0)
 # Higher-contrast runway lines on light CARTO basemap.
 RUNWAY_LIGHT = (35, 55, 95)
 # Radar blip flight-number / callsign row (user-tunable; dark vs light basemap).
-TAG_TEXT_DARK = (220, 238, 255)
+TAG_TEXT_DARK = (0, 255, 0)
 TAG_TEXT_LIGHT = (15, 23, 42)
 ALERT_MILITARY = (255, 40, 40)   # red — military tracks (flashing)
 # Vivid aqua — watch list. Punchier than LIVE (56, 168, 255), not climb (0, 255, 255).
