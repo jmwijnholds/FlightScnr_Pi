@@ -416,6 +416,8 @@ def _ensure_backdrop(*, calibrate: bool, pan_mode: bool, pan_offset) -> pygame.S
     draw.fill_background(surf)
     map_bg.draw_background(surf, pan_offset=None)
     rainviewer_overlay.draw_overlay(surf, pan_offset=None)
+    # Recreate the mockup's dark base locally so the blue HUD stays legible.
+    _apply_base_treatment(surf)
     # Airports are static with the basemap — bake here so the ~10Hz aircraft
     # layer rebuild (and its worker-thread SDL traffic) stays cheap.
     airport_overlay.draw_airports(surf, pan_offset=None)
@@ -498,6 +500,8 @@ def draw_radar(
         map_bg.draw_background(surface, pan_offset=offset)
         rainviewer_overlay.request_overlay()
         rainviewer_overlay.draw_overlay(surface, pan_offset=offset)
+        if not (pan_mode or calibrate):
+            _apply_base_treatment(surface)
         _draw_grid(surface, calibrate=calibrate or pan_mode)
 
     # Keep async map/precip/fire fetch warm even when using the cached backdrop.
@@ -592,15 +596,30 @@ def draw_radar(
     return bezel_applied
 
 
-# 2030 AR-HUD chrome accents (blue), matched to the radar design mockup.
-# A dark casing sits under every HUD line so it stays legible on satellite
-# imagery and street maps alike.
-_HUD_ACCENT = (150, 200, 255)
-_HUD_LINE = (120, 184, 255)
-_HUD_CASE = (3, 9, 18)
+# 2030 AR-HUD chrome (blue). Legibility comes from recreating the mockup's
+# dark base locally (desaturate + navy scrim + rim vignette) and cushioning
+# every solid electric-blue line on a semi-opaque dark "track" band + glow,
+# per the UX legibility spec — not from thick chrome.
+_HUD_SCRIM = (6, 11, 20, 105)
+_HUD_VIG = (1, 4, 10, 205)
+_HUD_BAND = (2, 7, 14, 150)
+_HUD_RING_OUTER = (110, 180, 255, 235)
+_HUD_RING_INNER = (110, 180, 255, 140)
+_HUD_CROSS = (110, 180, 255, 190)
+_HUD_ARC = (150, 205, 255, 190)
+_HUD_LABEL = (150, 200, 255)
+_HUD_PLATE = (3, 9, 18, 175)
+_HUD_PILL = (3, 9, 18, 150)
+
+_base_ov = None
+_base_ov_size = 0
 
 
-def _hud_arc_points(cx, cy, r, a0_deg, a1_deg, n=20):
+def _px(v: float) -> int:
+    return max(1, int(round(v * theme.SIZE / 720.0)))
+
+
+def _hud_arc_points(cx, cy, r, a0_deg, a1_deg, n=24):
     pts = []
     for i in range(n + 1):
         a = math.radians(a0_deg + (a1_deg - a0_deg) * i / n)
@@ -608,92 +627,163 @@ def _hud_arc_points(cx, cy, r, a0_deg, a1_deg, n=20):
     return pts
 
 
-def _case_w(w: int) -> int:
-    return w + max(2, theme.s(2))
-
-
-def _cased_dashed_circle(surface, center, r, color, w) -> None:
-    draw.draw_dashed_circle(surface, center, r, _HUD_CASE, width=_case_w(w))
-    draw.draw_dashed_circle(surface, center, r, color, width=w)
-
-
-def _cased_dashed_line(surface, a, b, color, w) -> None:
-    draw.draw_dashed_line(surface, a, b, _HUD_CASE, width=_case_w(w))
-    draw.draw_dashed_line(surface, a, b, color, width=w)
-
-
-def _cased_lines(surface, pts, color, w) -> None:
-    pygame.draw.lines(surface, _HUD_CASE, False, pts, _case_w(w))
-    pygame.draw.lines(surface, color, False, pts, w)
-
-
-def _cased_line(surface, a, b, color, w) -> None:
-    pygame.draw.line(surface, _HUD_CASE, a, b, _case_w(w))
-    pygame.draw.line(surface, color, a, b, w)
-
-
-def _blit_cased_text(surface, font, text, color, center) -> None:
-    d = max(1, theme.s(1))
-    dark = font.render(text, True, _HUD_CASE)
-    for dx, dy in ((-d, 0), (d, 0), (0, -d), (0, d), (-d, -d), (d, d), (-d, d), (d, -d)):
-        surface.blit(dark, dark.get_rect(center=(center[0] + dx, center[1] + dy)))
-    bright = font.render(text, True, color)
-    surface.blit(bright, bright.get_rect(center=center))
-
-
-def _draw_hud_cardinals(surface, facing: float) -> None:
-    """N/E/S/W labels, cardinal ticks and top/bottom arc accents (mockup HUD)."""
+def _base_overlay():
+    """Cached navy dim scrim + rim-weighted vignette — the local 'dark base'."""
+    global _base_ov, _base_ov_size
+    if _base_ov is not None and _base_ov_size == theme.SIZE:
+        return _base_ov
+    size = theme.SIZE
+    ov = pygame.Surface((size, size), pygame.SRCALPHA)
+    ov.fill(_HUD_SCRIM)
+    vig = pygame.Surface((size, size), pygame.SRCALPHA)
     cx, cy = theme.CENTER_X, theme.CENTER_Y
-    r = theme.GRID_OUTER_RADIUS
-    w1 = max(1, theme.s(2))
-    font = draw.load_font(theme.FONT_CARDINAL, bold=True)
-    tick = theme.s(9)
-    for text, bearing in (("N", 0), ("E", 90), ("S", 180), ("W", 270)):
+    r1 = theme.VISIBLE_RADIUS
+    r0 = int(r1 * 205 / 358)
+    span = max(1, r1 - r0)
+    for r in range(r1, r0, -2):
+        a = int(_HUD_VIG[3] * (r - r0) / span)
+        pygame.draw.circle(vig, (_HUD_VIG[0], _HUD_VIG[1], _HUD_VIG[2], a), (cx, cy), r)
+    ov.blit(vig, (0, 0))
+    _base_ov = ov
+    _base_ov_size = size
+    return ov
+
+
+def _apply_base_treatment(surface) -> None:
+    """Desaturate ~50% then lay the dark navy scrim + vignette over the map."""
+    try:
+        gray = pygame.transform.grayscale(surface)
+        gray.set_alpha(128)
+        surface.blit(gray, (0, 0))
+    except Exception:
+        pass
+    surface.blit(_base_overlay(), (0, 0))
+
+
+def _hud_glow(src):
+    """Fake-gaussian bloom of the blue line geometry (mockup feGaussianBlur)."""
+    size = src.get_width()
+    small = max(1, int(size * 0.22))
+    up = pygame.transform.smoothscale(
+        pygame.transform.smoothscale(src, (small, small)), (size, size)
+    )
+    # Per-pixel-alpha surfaces ignore set_alpha; scale alpha via a RGBA multiply.
+    up.fill((255, 255, 255, 100), special_flags=pygame.BLEND_RGBA_MULT)
+    return up
+
+
+def _plate_label(dst, font, text, text_rgb, center, *, pad_x, pad_y, radius, fill) -> None:
+    txt = font.render(text, True, text_rgb)
+    w = txt.get_width() + pad_x * 2
+    h = txt.get_height() + pad_y * 2
+    plate = pygame.Surface((w, h), pygame.SRCALPHA)
+    rad = h // 2 if radius is None else radius
+    pygame.draw.rect(plate, fill, plate.get_rect(), border_radius=rad)
+    plate.blit(txt, txt.get_rect(center=(w // 2, h // 2)))
+    dst.blit(plate, plate.get_rect(center=center))
+
+
+def _draw_ar_hud(surface, facing: float, *, show_rings: bool, with_labels: bool, cardinals: bool = True) -> None:
+    """Solid electric-blue rings/crosshair/cardinals over dark track bands and a
+    neon glow, with label plates — all composited through one SRCALPHA overlay."""
+    size = theme.SIZE
+    cx, cy = theme.CENTER_X, theme.CENTER_Y
+    Rout = theme.GRID_OUTER_RADIUS
+
+    w_outer, w_inner, w_cross, w_arc = _px(3), _px(2), _px(2), _px(2)
+    band_w = w_outer + _px(8)
+    gap = _px(26)
+
+    band = pygame.Surface((size, size), pygame.SRCALPHA)
+    lines = pygame.Surface((size, size), pygame.SRCALPHA)
+
+    rings = []
+    if show_rings:
+        units = settings.distance_units() if with_labels else None
+        ring_vals = scale.ring_values(scale.active_index(), units) if units else scale.ring_values(scale.active_index())
+        outer_val = float(ring_vals[-1])
+        for i, d in enumerate(ring_vals):
+            r = int(round(Rout * float(d) / outer_val))
+            rings.append((i, float(d), r, i == len(ring_vals) - 1))
+
+    def cross_segs(bearing):
         rad = math.radians(bearing - facing - 90)
         ca, sa = math.cos(rad), math.sin(rad)
-        _cased_line(
-            surface,
-            (int(cx + (r - tick) * ca), int(cy + (r - tick) * sa)),
-            (int(cx + r * ca), int(cy + r * sa)),
-            _HUD_LINE, w1,
+        return (
+            ((cx + gap * ca, cy + gap * sa), (cx + Rout * ca, cy + Rout * sa)),
+            ((cx - gap * ca, cy - gap * sa), (cx - Rout * ca, cy - Rout * sa)),
         )
-        lx = int(cx + (r - theme.s(24)) * ca)
-        ly = int(cy + (r - theme.s(24)) * sa)
-        _blit_cased_text(surface, font, text, _HUD_ACCENT, (lx, ly))
-    # Bright top/bottom arc accents (fixed screen chrome).
-    w2 = max(2, theme.s(2))
-    _cased_lines(surface, _hud_arc_points(cx, cy, r, -108, -72), _HUD_ACCENT, w2)
-    _cased_lines(surface, _hud_arc_points(cx, cy, r, 72, 108), _HUD_ACCENT, w2)
+
+    arc_top = _hud_arc_points(cx, cy, Rout, -108, -72)
+    arc_bot = _hud_arc_points(cx, cy, Rout, 72, 108)
+    tick = _px(16)
+    card_list = (
+        [(t, math.radians(b - facing - 90)) for t, b in (("N", 0), ("E", 90), ("S", 180), ("W", 270))]
+        if cardinals else []
+    )
+
+    # --- dark track bands (solid, wide) under everything ---
+    for _i, _d, r, _o in rings:
+        pygame.draw.circle(band, _HUD_BAND, (cx, cy), r, band_w)
+    if show_rings:
+        for bearing in (0, 90):
+            for a, b in cross_segs(bearing):
+                pygame.draw.line(band, _HUD_BAND, a, b, band_w)
+    for t, rad in card_list:
+        ca, sa = math.cos(rad), math.sin(rad)
+        pygame.draw.line(band, _HUD_BAND, (cx + (Rout - tick) * ca, cy + (Rout - tick) * sa), (cx + Rout * ca, cy + Rout * sa), band_w)
+    pygame.draw.lines(band, _HUD_BAND, False, arc_top, band_w)
+    pygame.draw.lines(band, _HUD_BAND, False, arc_bot, band_w)
+
+    # --- crisp solid electric-blue lines ---
+    for _i, _d, r, is_outer in rings:
+        pygame.draw.circle(lines, _HUD_RING_OUTER if is_outer else _HUD_RING_INNER, (cx, cy), r, w_outer if is_outer else w_inner)
+    if show_rings:
+        for bearing in (0, 90):
+            for a, b in cross_segs(bearing):
+                pygame.draw.line(lines, _HUD_CROSS, a, b, w_cross)
+    for t, rad in card_list:
+        ca, sa = math.cos(rad), math.sin(rad)
+        pygame.draw.line(lines, _HUD_CROSS, (cx + (Rout - tick) * ca, cy + (Rout - tick) * sa), (cx + Rout * ca, cy + Rout * sa), w_cross)
+    pygame.draw.lines(lines, _HUD_ARC, False, arc_top, w_arc)
+    pygame.draw.lines(lines, _HUD_ARC, False, arc_bot, w_arc)
+
+    # --- composite: bands, glow, crisp lines ---
+    surface.blit(band, (0, 0))
+    surface.blit(_hud_glow(lines), (0, 0))
+    surface.blit(lines, (0, 0))
+
+    # --- label plates ---
+    cfont = draw.load_font(theme.FONT_CARDINAL, bold=True)
+    for t, rad in card_list:
+        ca, sa = math.cos(rad), math.sin(rad)
+        lx = int(cx + (Rout - _px(30)) * ca)
+        ly = int(cy + (Rout - _px(30)) * sa)
+        _plate_label(surface, cfont, t, _HUD_LABEL, (lx, ly), pad_x=_px(7), pad_y=_px(4), radius=_px(6), fill=_HUD_PLATE)
+    if show_rings and with_labels:
+        sfont = draw.load_font(theme.FONT_SCALE_LABEL, bold=True)
+        use_units = settings.distance_units()
+        for _i, d, r, is_outer in rings:
+            label = f"{d:g}{use_units}"
+            g = theme.SCALE_GAP_OUTER_RING_KM if is_outer and use_units == "km" else theme.SCALE_GAP_FROM_OUTER_RING
+            label_r = r - g
+            rad = math.radians(theme.SCALE_LABEL_BEARING_DEG - facing - 90)
+            x = int(cx + label_r * math.cos(rad))
+            y = int(cy + label_r * math.sin(rad))
+            _plate_label(surface, sfont, label, _HUD_LABEL, (x, y), pad_x=_px(8), pad_y=_px(3), radius=None, fill=_HUD_PILL)
 
 
 def _draw_grid(surface, *, calibrate: bool = False):
-    center = (theme.CENTER_X, theme.CENTER_Y)
-    line_w = max(1, theme.s(2))
     facing = settings.effective_facing_deg()
-    if not calibrate and not settings.show_compass_rose():
-        _draw_hud_cardinals(surface, facing)
-    if settings.show_range_rings():
-        # Rings sit at round distances (scale.ring_values), not exact thirds.
-        ring_vals = scale.ring_values(scale.active_index())
-        outer_val = float(ring_vals[-1])
-        for d in ring_vals:
-            r = int(round(theme.GRID_OUTER_RADIUS * float(d) / outer_val))
-            _cased_dashed_circle(surface, center, r, _HUD_LINE, line_w)
-
-        cx, cy = theme.CENTER_X, theme.CENTER_Y
-        r = theme.GRID_OUTER_RADIUS
-        # Crosshairs follow true N/S and E/W (rotate with facing).
-        for bearing in (0, 90):
-            rad = math.radians(bearing - facing - 90)
-            dx = r * math.cos(rad)
-            dy = r * math.sin(rad)
-            _cased_dashed_line(
-                surface,
-                (cx - dx, cy - dy),
-                (cx + dx, cy + dy),
-                _HUD_LINE,
-                line_w,
-            )
+    # AR-HUD chrome: solid blue rings/crosshair/cardinals over dark bands + glow.
+    # When the Targets-page compass rose is on, it supplies its own cardinals.
+    _draw_ar_hud(
+        surface,
+        facing,
+        show_rings=settings.show_range_rings(),
+        with_labels=not calibrate,
+        cardinals=not settings.show_compass_rose(),
+    )
 
     cx, cy = theme.CENTER_X, theme.CENTER_Y
     if settings.show_compass_rose():
@@ -739,25 +829,7 @@ def _draw_grid(surface, *, calibrate: bool = False):
                 _blit_rose(
                     diag_font.render(f"{bearing:03d}", True, rose_rgb), (x, y)
                 )
-
-    # Range tags collide with calibrate help text — omit them in that mode.
-    if calibrate or not settings.show_range_rings():
-        return
-
-    use_units = settings.distance_units()
-    scale_font = draw.load_font(theme.FONT_SCALE_LABEL, bold=True)
-    ring_vals = scale.ring_values(scale.active_index(), use_units)
-    outer_val = float(ring_vals[-1])
-    for i, ring_d in enumerate(ring_vals):
-        is_outer = i == len(ring_vals) - 1
-        label = f"{ring_d:g}{use_units}"
-        r = int(round(theme.GRID_OUTER_RADIUS * float(ring_d) / outer_val))
-        gap = theme.SCALE_GAP_OUTER_RING_KM if is_outer and use_units == "km" else theme.SCALE_GAP_FROM_OUTER_RING
-        label_r = r - gap
-        rad = math.radians(theme.SCALE_LABEL_BEARING_DEG - facing - 90)
-        x = theme.CENTER_X + int(label_r * math.cos(rad))
-        y = theme.CENTER_Y + int(label_r * math.sin(rad))
-        _blit_cased_text(surface, scale_font, label, _HUD_LINE, (x, y))
+    # Range labels are drawn as plates inside _draw_ar_hud.
 
 
 def _tag_block_metrics():
