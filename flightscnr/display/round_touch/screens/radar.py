@@ -684,18 +684,17 @@ def _plate_label(dst, font, text, text_rgb, center, *, pad_x, pad_y, radius, fil
 
 
 def _draw_ar_hud(surface, facing: float, *, show_rings: bool, with_labels: bool, cardinals: bool = True) -> None:
-    """Solid electric-blue rings/crosshair/cardinals over dark track bands and a
-    neon glow, with label plates — all composited through one SRCALPHA overlay."""
+    """Clean 'deep instrument' HUD: thin blue rings + fine minute ticks + an
+    amber boresight + cardinal letters, on the dark base. No heavy bands."""
     size = theme.SIZE
     cx, cy = theme.CENTER_X, theme.CENTER_Y
     Rout = theme.GRID_OUTER_RADIUS
 
-    w_outer, w_inner, w_cross, w_arc = _px(3), _px(2), _px(2), _px(2)
-    band_w = w_outer + _px(8)
-    gap = _px(26)
-
-    band = pygame.Surface((size, size), pygame.SRCALPHA)
-    lines = pygame.Surface((size, size), pygame.SRCALPHA)
+    RING_OUTER = (110, 180, 255, 225)
+    RING_INNER = (96, 150, 210, 150)
+    TICK_LONG = (150, 195, 235, 170)
+    TICK_MIN = (120, 175, 235, 85)
+    HUB = (245, 182, 66)
 
     rings = []
     if show_rings:
@@ -706,60 +705,45 @@ def _draw_ar_hud(surface, facing: float, *, show_rings: bool, with_labels: bool,
             r = int(round(Rout * float(d) / outer_val))
             rings.append((i, float(d), r, i == len(ring_vals) - 1))
 
-    def cross_segs(bearing):
-        rad = math.radians(bearing - facing - 90)
+    hud = pygame.Surface((size, size), pygame.SRCALPHA)
+    # thin range rings
+    for _i, _d, r, is_outer in rings:
+        pygame.draw.circle(hud, RING_OUTER if is_outer else RING_INNER, (cx, cy), r, _px(2))
+    # fine minute ticks around the rim, long every 30° (rotate with facing)
+    for deg in range(0, 360, 6):
+        rad = math.radians(deg - facing - 90)
         ca, sa = math.cos(rad), math.sin(rad)
-        return (
-            ((cx + gap * ca, cy + gap * sa), (cx + Rout * ca, cy + Rout * sa)),
-            ((cx - gap * ca, cy - gap * sa), (cx - Rout * ca, cy - Rout * sa)),
+        lng = (deg % 30 == 0)
+        t = _px(14) if lng else _px(7)
+        pygame.draw.line(
+            hud, TICK_LONG if lng else TICK_MIN,
+            (cx + (Rout - t) * ca, cy + (Rout - t) * sa),
+            (cx + Rout * ca, cy + Rout * sa),
+            _px(2) if lng else _px(1),
         )
 
-    arc_top = _hud_arc_points(cx, cy, Rout, -108, -72)
-    arc_bot = _hud_arc_points(cx, cy, Rout, 72, 108)
-    tick = _px(16)
-    card_list = (
-        [(t, math.radians(b - facing - 90)) for t, b in (("N", 0), ("E", 90), ("S", 180), ("W", 270))]
-        if cardinals else []
-    )
+    # soft glow of the blue geometry, then the crisp lines
+    surface.blit(_hud_glow(hud), (0, 0))
+    surface.blit(hud, (0, 0))
 
-    # --- dark track bands (solid, wide) under everything ---
-    for _i, _d, r, _o in rings:
-        pygame.draw.circle(band, _HUD_BAND, (cx, cy), r, band_w)
-    if show_rings:
-        for bearing in (0, 90):
-            for a, b in cross_segs(bearing):
-                pygame.draw.line(band, _HUD_BAND, a, b, band_w)
-    for t, rad in card_list:
-        ca, sa = math.cos(rad), math.sin(rad)
-        pygame.draw.line(band, _HUD_BAND, (cx + (Rout - tick) * ca, cy + (Rout - tick) * sa), (cx + Rout * ca, cy + Rout * sa), band_w)
-    pygame.draw.lines(band, _HUD_BAND, False, arc_top, band_w)
-    pygame.draw.lines(band, _HUD_BAND, False, arc_bot, band_w)
+    # amber boresight at centre
+    bs = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.circle(bs, (*HUB, 255), (cx, cy), _px(4))
+    pygame.draw.circle(bs, (*HUB, 120), (cx, cy), _px(10), _px(1))
+    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+        pygame.draw.line(bs, (150, 195, 235, 150), (cx + dx * _px(8), cy + dy * _px(8)), (cx + dx * _px(20), cy + dy * _px(20)), _px(1))
+    surface.blit(bs, (0, 0))
 
-    # --- crisp solid electric-blue lines ---
-    for _i, _d, r, is_outer in rings:
-        pygame.draw.circle(lines, _HUD_RING_OUTER if is_outer else _HUD_RING_INNER, (cx, cy), r, w_outer if is_outer else w_inner)
-    if show_rings:
-        for bearing in (0, 90):
-            for a, b in cross_segs(bearing):
-                pygame.draw.line(lines, _HUD_CROSS, a, b, w_cross)
-    for t, rad in card_list:
-        ca, sa = math.cos(rad), math.sin(rad)
-        pygame.draw.line(lines, _HUD_CROSS, (cx + (Rout - tick) * ca, cy + (Rout - tick) * sa), (cx + Rout * ca, cy + Rout * sa), w_cross)
-    pygame.draw.lines(lines, _HUD_ARC, False, arc_top, w_arc)
-    pygame.draw.lines(lines, _HUD_ARC, False, arc_bot, w_arc)
+    # cardinal letters on subtle plates
+    if cardinals:
+        cfont = draw.load_font(theme.FONT_CARDINAL, bold=True)
+        for t, bearing in (("N", 0), ("E", 90), ("S", 180), ("W", 270)):
+            rad = math.radians(bearing - facing - 90)
+            lx = int(cx + (Rout - _px(30)) * math.cos(rad))
+            ly = int(cy + (Rout - _px(30)) * math.sin(rad))
+            _plate_label(surface, cfont, t, _HUD_LABEL, (lx, ly), pad_x=_px(7), pad_y=_px(4), radius=_px(6), fill=_HUD_PLATE)
 
-    # --- composite: bands, glow, crisp lines ---
-    surface.blit(band, (0, 0))
-    surface.blit(_hud_glow(lines), (0, 0))
-    surface.blit(lines, (0, 0))
-
-    # --- label plates ---
-    cfont = draw.load_font(theme.FONT_CARDINAL, bold=True)
-    for t, rad in card_list:
-        ca, sa = math.cos(rad), math.sin(rad)
-        lx = int(cx + (Rout - _px(30)) * ca)
-        ly = int(cy + (Rout - _px(30)) * sa)
-        _plate_label(surface, cfont, t, _HUD_LABEL, (lx, ly), pad_x=_px(7), pad_y=_px(4), radius=_px(6), fill=_HUD_PLATE)
+    # range labels (km/units) as pills
     if show_rings and with_labels:
         sfont = draw.load_font(theme.FONT_SCALE_LABEL, bold=True)
         use_units = settings.distance_units()
