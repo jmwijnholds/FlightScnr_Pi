@@ -1408,9 +1408,30 @@ def _overlay_color_for_basemap(color: tuple) -> tuple:
     )
 
 
+# 2030 redesign: selected/tracked reads violet; category tints for heli/drone.
+_TRACKED_VIOLET = (198, 150, 255)
+_CAT_HELI = (150, 220, 255)
+_CAT_DRONE = (120, 232, 214)
+
+_ac_glow_cache: dict = {}
+
+
+def _aircraft_glow(surface, x, y, color) -> None:
+    """Soft bloom behind an aircraft icon so it lifts off the map."""
+    key = tuple(color[:3])
+    g = _ac_glow_cache.get(key)
+    if g is None:
+        rad = theme.AIRCRAFT_ICON_RADIUS + theme.s(6)
+        g = pygame.Surface((rad * 2, rad * 2), pygame.SRCALPHA)
+        for ir, a in ((rad, 16), (int(rad * 0.7), 28), (int(rad * 0.45), 40)):
+            pygame.draw.circle(g, (*key, a), (rad, rad), ir)
+        _ac_glow_cache[key] = g
+    surface.blit(g, g.get_rect(center=(x, y)))
+
+
 def _flight_icon_color(flight, *, compact: bool):
     if _is_tracked(flight) and not compact:
-        return _overlay_color_for_basemap(theme.SWEEP)
+        return _TRACKED_VIOLET
     if aircraft_alert.is_highlighted(flight):
         # Pulse between alert color and aircraft yellow; emergency stays solid red.
         if aircraft_alert.pulse_phase():
@@ -1434,8 +1455,15 @@ def _flight_icon_color(flight, *, compact: bool):
         return altitude_color.color_for_altitude(flight.get("altitude"))
     # Targets page: per-category accent replaces only the single default
     # color — altitude coloring and alert pulses keep priority above.
-    custom = settings.target_color(aircraft.target_category(flight))
-    return _overlay_color_for_basemap(custom or theme.AIRCRAFT)
+    cat = aircraft.target_category(flight)
+    custom = settings.target_color(cat)
+    if custom:
+        return _overlay_color_for_basemap(custom)
+    if cat == "heli":
+        return _CAT_HELI
+    if cat == "drone":
+        return _CAT_DRONE
+    return _overlay_color_for_basemap(theme.AIRCRAFT)
 
 
 def _draw_flights(surface, flights):
@@ -1524,6 +1552,7 @@ def _draw_flights(surface, flights):
         for _, flight, (x, y) in inner_items:
             heading = geo.screen_heading(flight.get("heading") or 0)
             color = _flight_icon_color(flight, compact=False)
+            _aircraft_glow(surface, x, y, color)
             aircraft.draw_plane_icon(surface, x, y, heading, color, flight=flight)
         _t = frame_debug.end("2r_f_icons", _t)
 
