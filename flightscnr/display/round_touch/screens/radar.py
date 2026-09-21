@@ -593,8 +593,11 @@ def draw_radar(
 
 
 # 2030 AR-HUD chrome accents (blue), matched to the radar design mockup.
-_HUD_ACCENT = (143, 196, 255)
-_HUD_ACCENT_DIM = (77, 159, 255)
+# A dark casing sits under every HUD line so it stays legible on satellite
+# imagery and street maps alike.
+_HUD_ACCENT = (150, 200, 255)
+_HUD_LINE = (120, 184, 255)
+_HUD_CASE = (3, 9, 18)
 
 
 def _hud_arc_points(cx, cy, r, a0_deg, a1_deg, n=20):
@@ -605,29 +608,62 @@ def _hud_arc_points(cx, cy, r, a0_deg, a1_deg, n=20):
     return pts
 
 
+def _case_w(w: int) -> int:
+    return w + max(2, theme.s(2))
+
+
+def _cased_dashed_circle(surface, center, r, color, w) -> None:
+    draw.draw_dashed_circle(surface, center, r, _HUD_CASE, width=_case_w(w))
+    draw.draw_dashed_circle(surface, center, r, color, width=w)
+
+
+def _cased_dashed_line(surface, a, b, color, w) -> None:
+    draw.draw_dashed_line(surface, a, b, _HUD_CASE, width=_case_w(w))
+    draw.draw_dashed_line(surface, a, b, color, width=w)
+
+
+def _cased_lines(surface, pts, color, w) -> None:
+    pygame.draw.lines(surface, _HUD_CASE, False, pts, _case_w(w))
+    pygame.draw.lines(surface, color, False, pts, w)
+
+
+def _cased_line(surface, a, b, color, w) -> None:
+    pygame.draw.line(surface, _HUD_CASE, a, b, _case_w(w))
+    pygame.draw.line(surface, color, a, b, w)
+
+
+def _blit_cased_text(surface, font, text, color, center) -> None:
+    d = max(1, theme.s(1))
+    dark = font.render(text, True, _HUD_CASE)
+    for dx, dy in ((-d, 0), (d, 0), (0, -d), (0, d), (-d, -d), (d, d), (-d, d), (d, -d)):
+        surface.blit(dark, dark.get_rect(center=(center[0] + dx, center[1] + dy)))
+    bright = font.render(text, True, color)
+    surface.blit(bright, bright.get_rect(center=center))
+
+
 def _draw_hud_cardinals(surface, facing: float) -> None:
     """N/E/S/W labels, cardinal ticks and top/bottom arc accents (mockup HUD)."""
     cx, cy = theme.CENTER_X, theme.CENTER_Y
     r = theme.GRID_OUTER_RADIUS
-    w1 = max(1, theme.s(1))
-    # Cardinal ticks + letters, tracking true north (rotate with facing).
+    w1 = max(1, theme.s(2))
     font = draw.load_font(theme.FONT_CARDINAL, bold=True)
     tick = theme.s(9)
     for text, bearing in (("N", 0), ("E", 90), ("S", 180), ("W", 270)):
         rad = math.radians(bearing - facing - 90)
         ca, sa = math.cos(rad), math.sin(rad)
-        pygame.draw.line(
-            surface, _HUD_ACCENT_DIM,
+        _cased_line(
+            surface,
             (int(cx + (r - tick) * ca), int(cy + (r - tick) * sa)),
-            (int(cx + r * ca), int(cy + r * sa)), w1,
+            (int(cx + r * ca), int(cy + r * sa)),
+            _HUD_LINE, w1,
         )
         lx = int(cx + (r - theme.s(24)) * ca)
         ly = int(cy + (r - theme.s(24)) * sa)
-        surface.blit(font.render(text, True, _HUD_ACCENT), font.render(text, True, _HUD_ACCENT).get_rect(center=(lx, ly)))
+        _blit_cased_text(surface, font, text, _HUD_ACCENT, (lx, ly))
     # Bright top/bottom arc accents (fixed screen chrome).
     w2 = max(2, theme.s(2))
-    pygame.draw.lines(surface, _HUD_ACCENT, False, _hud_arc_points(cx, cy, r, -108, -72), w2)
-    pygame.draw.lines(surface, _HUD_ACCENT, False, _hud_arc_points(cx, cy, r, 72, 108), w2)
+    _cased_lines(surface, _hud_arc_points(cx, cy, r, -108, -72), _HUD_ACCENT, w2)
+    _cased_lines(surface, _hud_arc_points(cx, cy, r, 72, 108), _HUD_ACCENT, w2)
 
 
 def _draw_grid(surface, *, calibrate: bool = False):
@@ -642,7 +678,7 @@ def _draw_grid(surface, *, calibrate: bool = False):
         outer_val = float(ring_vals[-1])
         for d in ring_vals:
             r = int(round(theme.GRID_OUTER_RADIUS * float(d) / outer_val))
-            draw.draw_dashed_circle(surface, center, r, theme.GRID, width=line_w)
+            _cased_dashed_circle(surface, center, r, _HUD_LINE, line_w)
 
         cx, cy = theme.CENTER_X, theme.CENTER_Y
         r = theme.GRID_OUTER_RADIUS
@@ -651,12 +687,12 @@ def _draw_grid(surface, *, calibrate: bool = False):
             rad = math.radians(bearing - facing - 90)
             dx = r * math.cos(rad)
             dy = r * math.sin(rad)
-            draw.draw_dashed_line(
+            _cased_dashed_line(
                 surface,
                 (cx - dx, cy - dy),
                 (cx + dx, cy + dy),
-                theme.CROSSHAIR,
-                width=line_w,
+                _HUD_LINE,
+                line_w,
             )
 
     cx, cy = theme.CENTER_X, theme.CENTER_Y
@@ -721,8 +757,7 @@ def _draw_grid(surface, *, calibrate: bool = False):
         rad = math.radians(theme.SCALE_LABEL_BEARING_DEG - facing - 90)
         x = theme.CENTER_X + int(label_r * math.cos(rad))
         y = theme.CENTER_Y + int(label_r * math.sin(rad))
-        rendered = scale_font.render(label, True, theme.GRID)
-        surface.blit(rendered, rendered.get_rect(center=(x, y)))
+        _blit_cased_text(surface, scale_font, label, _HUD_LINE, (x, y))
 
 
 def _tag_block_metrics():
