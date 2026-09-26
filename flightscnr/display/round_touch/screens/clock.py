@@ -36,9 +36,9 @@ _WX_SUNSET = (95, 255, 132)
 _SUN_TXT = (159, 230, 175)
 
 # Font sizes as a fraction of the dial, matched to the design mockup's pixels.
-_TIME_FR = 0.190
-_SEC_FR = 0.047
-_DATE_FR = 0.0245
+_TIME_FR = 0.215
+_SEC_FR = 0.050
+_DATE_FR = 0.032
 _TEMP_FR = 0.0235
 _COND_FR = 0.0205
 _SUN_FR = 0.0205
@@ -80,14 +80,6 @@ def _sg(size: int, weight: str = "medium") -> pygame.font.Font:
     return font
 
 
-def _arc_points(cx, cy, r, a0_deg, a1_deg, n=16):
-    pts = []
-    for i in range(n + 1):
-        a = math.radians(a0_deg + (a1_deg - a0_deg) * i / n)
-        pts.append((int(cx + r * math.cos(a)), int(cy + r * math.sin(a))))
-    return pts
-
-
 def _draw_depth(surface):
     """Soft navy bloom slightly above centre — fakes the mockup's depth gradient."""
     size = theme.SIZE
@@ -99,33 +91,18 @@ def _draw_depth(surface):
 
 
 def _draw_hud_frame(surface):
-    """Dark blue-black base with depth bloom, echo rings, ticks and arc accents."""
+    """Clean dark base: a soft depth bloom and faint concentric rings only.
+
+    No cardinal ticks or bright arc accents — the mockup clock is minimal, so
+    the chrome stays quiet and the time is the one thing that reads.
+    """
     surface.fill(_HUD_BG)
     _draw_depth(surface)
     cx, cy, R = theme.CENTER_X, theme.CENTER_Y, theme.VISIBLE_RADIUS
     w1 = max(1, theme.s(1))
-    # Faint concentric radar echoes.
     pygame.draw.circle(surface, _HUD_ECHO, (cx, cy), int(R * 0.44), w1)
     pygame.draw.circle(surface, _HUD_ECHO, (cx, cy), int(R * 0.72), w1)
-    # Outer HUD ring.
-    r_arc = R - theme.s(4)
-    pygame.draw.circle(surface, _HUD_RING, (cx, cy), r_arc, w1)
-    # Cardinal ticks just inside the rim.
-    tick = theme.s(8)
-    for ang in (0, 90, 180, 270):
-        a = math.radians(ang)
-        ca, sa = math.cos(a), math.sin(a)
-        pygame.draw.line(
-            surface,
-            _HUD_RING,
-            (int(cx + (r_arc - tick) * ca), int(cy + (r_arc - tick) * sa)),
-            (int(cx + r_arc * ca), int(cy + r_arc * sa)),
-            w1,
-        )
-    # Bright top/bottom arc accents.
-    w2 = max(2, theme.s(2))
-    pygame.draw.lines(surface, _HUD_RING_HI, False, _arc_points(cx, cy, r_arc, -108, -72), w2)
-    pygame.draw.lines(surface, _HUD_RING_HI, False, _arc_points(cx, cy, r_arc, 72, 108), w2)
+    pygame.draw.circle(surface, _HUD_RING, (cx, cy), R - theme.s(4), w1)
 
 
 def _soft_glow(glow_img):
