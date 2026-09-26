@@ -36,14 +36,15 @@ _WX_ICON = (143, 255, 169)
 _WX_AMBER = (245, 182, 66)
 _WX_SUNSET = (95, 255, 132)
 _SUN_TXT = (159, 230, 175)
+_HUD_ATTR = (60, 96, 72)   # very low-key: the Tomorrow.io credit stays, quietly
 
 # Font sizes as a fraction of the dial, matched to the design mockup's pixels.
-_TIME_FR = 0.215
+_TIME_FR = 0.260
 _SEC_FR = 0.050
 _DATE_FR = 0.028
-_TEMP_FR = 0.0235
-_COND_FR = 0.0205
-_SUN_FR = 0.0205
+_TEMP_FR = 0.028
+_COND_FR = 0.024
+_SUN_FR = 0.024
 
 # Vertical anchors as a fraction of the dial (resolution independent).
 _WEATHER_CY = 0.235
@@ -477,7 +478,7 @@ def _draw_weather_pill(surface, wx) -> None:
     if cond == "—":
         cond = ""
 
-    icon_size = int(theme.SIZE * 0.030)
+    icon_size = int(theme.SIZE * 0.036)
     pad_x = theme.s(15)
     gap = theme.s(8)
     cy = int(theme.SIZE * _WEATHER_CY)
@@ -521,7 +522,7 @@ def _draw_sun_chips(surface, wx) -> None:
     if sunrise == "—" and sunset == "—":
         return
     font = _sg(int(theme.SIZE * _SUN_FR), "regular")
-    icon_size = int(theme.SIZE * 0.026)
+    icon_size = int(theme.SIZE * 0.030)
     mid_y = int(theme.SIZE * _SUN_CY)
     offset = theme.s(40)
     gap = theme.s(5)
@@ -722,11 +723,11 @@ def _draw_attribution_arc(surface) -> None:
     layout instead of a straight line under everything."""
     text = weather_icons.ATTRIBUTION
     try:
-        font = draw.load_font(max(8, theme.s(9)))
-        items = [font.render(ch, True, _HUD_COND) for ch in text]
+        font = draw.load_font(max(7, theme.s(8)))
+        items = [font.render(ch, True, _HUD_ATTR) for ch in text]
     except Exception:
         return
-    r = int(theme.VISIBLE_RADIUS * 0.94)
+    r = int(theme.VISIBLE_RADIUS * 0.95)
     arc_ui.blit_arc_items(
         surface, items, r=r, mid=math.pi / 2, bottom=True,
         cx=theme.CENTER_X, cy=theme.CENTER_Y,
