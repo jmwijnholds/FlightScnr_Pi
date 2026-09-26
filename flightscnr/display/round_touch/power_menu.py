@@ -177,10 +177,15 @@ _icon_rect = pygame.Rect(0, 0, 0, 0)
 
 
 def draw_icon(surface, cx: int, cy: int) -> None:
-    """Small muted power glyph in a footer slot (clock and About screen)."""
+    """Small power glyph in a footer slot (clock and About screen).
+
+    Tinted a muted green off the device accent so it belongs to the dial
+    instead of reading as a grey system control.
+    """
     global _icon_rect
     r = theme.s(14)
-    _draw_power_symbol(surface, cx, cy, r, theme.HINT, max(2, theme.s(2)))
+    color = tuple(int(round(c * 0.62)) for c in theme.SWEEP[:3])
+    _draw_power_symbol(surface, cx, cy, r, color, max(2, theme.s(2)))
     hit = r * 2 + theme.s(16)
     _icon_rect = pygame.Rect(0, 0, hit, hit)
     _icon_rect.center = (cx, cy)

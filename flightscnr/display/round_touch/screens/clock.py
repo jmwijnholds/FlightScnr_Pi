@@ -39,9 +39,9 @@ _SUN_TXT = (159, 230, 175)
 _HUD_ATTR = (60, 96, 72)   # very low-key: the Tomorrow.io credit stays, quietly
 
 # Font sizes as a fraction of the dial, matched to the design mockup's pixels.
-_TIME_FR = 0.260
+_TIME_FR = 0.235
 _SEC_FR = 0.050
-_DATE_FR = 0.028
+_DATE_FR = 0.033
 _TEMP_FR = 0.028
 _COND_FR = 0.024
 _SUN_FR = 0.024
@@ -431,7 +431,7 @@ def _time_layout():
         accent_img = accent_font.render(_seconds_string(), True, _HUD_SEC)
 
     center_y = int(theme.SIZE * _TIME_CY)
-    gap = theme.s(4)  # seconds hug the time (mockup ~8px on the 720 canvas)
+    gap = theme.s(6)  # seconds sit close to the time without cramping
     # Centre the time itself on the axis; the accent overhangs to the right so
     # the big digits line up with the pill and sun chips.
     time_rect = time_img.get_rect(center=(theme.CENTER_X, center_y))
@@ -460,7 +460,9 @@ def _draw_date(surface, time_rect) -> None:
     date_str = _date_string(now).replace(",", "")
     date_str = f"{date_str} {now.year}".upper()
     font = _sg(int(theme.SIZE * _DATE_FR), "regular")
-    cy = time_rect.bottom + theme.s(4) + font.get_height() // 2
+    # The big time glyphs leave descent space below their visible bottom; pull
+    # the date up into it so it sits close under the digits.
+    cy = time_rect.bottom - int(time_rect.height * 0.16) + font.get_height() // 2
     _blit_spaced(surface, date_str, font, _HUD_DATE, (theme.CENTER_X, cy), theme.s(4))
 
 
