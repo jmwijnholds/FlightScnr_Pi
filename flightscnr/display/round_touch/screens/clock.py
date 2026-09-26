@@ -18,21 +18,22 @@ import pygame
 from display.round_touch import draw, nav, settings, theme, weather_data, weather_icons
 from i18n import format_date
 
-# 2030 AR-HUD reskin palette (clock face).
-_HUD_BG = (5, 9, 18)
-_HUD_ECHO = (16, 30, 54)
-_HUD_RING = (40, 80, 138)
-_HUD_RING_HI = (120, 180, 255)
-_HUD_TIME = (230, 244, 255)
-_HUD_SUB = (150, 190, 230)
-_HUD_SEC = (111, 168, 224)
-_HUD_DEPTH = (16, 34, 66)
-_HUD_DATE = (143, 184, 230)
-_HUD_COND = (127, 168, 216)
-_WX_ICON = (143, 196, 255)
+# 2030 AR-HUD reskin palette (clock face). Green family (hue of theme.SWEEP)
+# so the clock matches the rest of the device instead of a separate blue.
+_HUD_BG = (5, 18, 8)
+_HUD_ECHO = (16, 54, 25)
+_HUD_RING = (40, 138, 63)
+_HUD_RING_HI = (120, 255, 151)
+_HUD_TIME = (230, 255, 236)
+_HUD_SUB = (150, 230, 169)
+_HUD_SEC = (111, 224, 137)
+_HUD_DEPTH = (16, 66, 28)
+_HUD_DATE = (143, 230, 163)
+_HUD_COND = (127, 216, 148)
+_WX_ICON = (143, 255, 169)
 _WX_AMBER = (245, 182, 66)
-_WX_SUNSET = (95, 165, 255)
-_SUN_TXT = (159, 196, 230)
+_WX_SUNSET = (95, 255, 132)
+_SUN_TXT = (159, 230, 175)
 
 # Font sizes as a fraction of the dial, matched to the design mockup's pixels.
 _TIME_FR = 0.190
@@ -493,8 +494,8 @@ def _draw_weather_pill(surface, wx) -> None:
 
     chip = pygame.Surface((pill_w, pill_h), pygame.SRCALPHA)
     rect = chip.get_rect()
-    pygame.draw.rect(chip, (120, 180, 255, 18), rect, border_radius=pill_h // 2)
-    pygame.draw.rect(chip, (120, 180, 255, 60), rect, width=max(1, theme.s(1)), border_radius=pill_h // 2)
+    pygame.draw.rect(chip, (*_HUD_RING_HI, 18), rect, border_radius=pill_h // 2)
+    pygame.draw.rect(chip, (*_HUD_RING_HI, 60), rect, width=max(1, theme.s(1)), border_radius=pill_h // 2)
     surface.blit(chip, (pill_x, pill_y))
 
     x = pill_x + pad_x
