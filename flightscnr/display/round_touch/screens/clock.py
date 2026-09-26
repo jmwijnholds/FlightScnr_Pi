@@ -15,7 +15,9 @@ import os
 
 import pygame
 
-from display.round_touch import draw, nav, settings, theme, weather_data, weather_icons
+from display.round_touch import (
+    arc_ui, draw, nav, settings, theme, weather_data, weather_icons,
+)
 from i18n import format_date
 
 # 2030 AR-HUD reskin palette (clock face). Green family (hue of theme.SWEEP)
@@ -38,7 +40,7 @@ _SUN_TXT = (159, 230, 175)
 # Font sizes as a fraction of the dial, matched to the design mockup's pixels.
 _TIME_FR = 0.215
 _SEC_FR = 0.050
-_DATE_FR = 0.032
+_DATE_FR = 0.028
 _TEMP_FR = 0.0235
 _COND_FR = 0.0205
 _SUN_FR = 0.0205
@@ -90,19 +92,48 @@ def _draw_depth(surface):
     surface.blit(bloom, (0, 0))
 
 
-def _draw_hud_frame(surface):
-    """Clean dark base: a soft depth bloom and faint concentric rings only.
+def _arc_points(cx, cy, r, a0_deg, a1_deg, n=16):
+    pts = []
+    for i in range(n + 1):
+        a = math.radians(a0_deg + (a1_deg - a0_deg) * i / n)
+        pts.append((int(cx + r * math.cos(a)), int(cy + r * math.sin(a))))
+    return pts
 
-    No cardinal ticks or bright arc accents — the mockup clock is minimal, so
-    the chrome stays quiet and the time is the one thing that reads.
-    """
+
+def _draw_hud_frame(surface):
+    """Faint HUD chrome, matched to the mockup: soft depth bloom, very faint
+    concentric rings, a wide soft rim glow, and subtle cardinal ticks and
+    top/bottom arc accents. Everything is low-opacity green so the time reads
+    as the one bright thing on the dial."""
     surface.fill(_HUD_BG)
     _draw_depth(surface)
+    size = theme.SIZE
     cx, cy, R = theme.CENTER_X, theme.CENTER_Y, theme.VISIBLE_RADIUS
+    ov = pygame.Surface((size, size), pygame.SRCALPHA)
+    a = tuple(theme.SWEEP[:3])       # device accent (green)
     w1 = max(1, theme.s(1))
-    pygame.draw.circle(surface, _HUD_ECHO, (cx, cy), int(R * 0.44), w1)
-    pygame.draw.circle(surface, _HUD_ECHO, (cx, cy), int(R * 0.72), w1)
-    pygame.draw.circle(surface, _HUD_RING, (cx, cy), R - theme.s(4), w1)
+    # Faint concentric echoes.
+    pygame.draw.circle(ov, (*a, 26), (cx, cy), int(R * 0.42), w1)
+    pygame.draw.circle(ov, (*a, 26), (cx, cy), int(R * 0.70), w1)
+    # Outer ring + a wide, soft rim glow behind it.
+    r_out = R - theme.s(2)
+    pygame.draw.circle(ov, (*a, 26), (cx, cy), r_out, theme.s(4))
+    pygame.draw.circle(ov, (*a, 56), (cx, cy), r_out, w1)
+    # Subtle cardinal ticks.
+    tick = theme.s(9)
+    for ang in (0, 90, 180, 270):
+        ca, sa = math.cos(math.radians(ang)), math.sin(math.radians(ang))
+        pygame.draw.line(
+            ov, (*a, 100),
+            (int(cx + (r_out - tick) * ca), int(cy + (r_out - tick) * sa)),
+            (int(cx + r_out * ca), int(cy + r_out * sa)), w1,
+        )
+    # Subtle top/bottom arc accents (a touch brighter than the ring).
+    pygame.draw.lines(ov, (*_HUD_RING_HI, 130), False,
+                      _arc_points(cx, cy, r_out, -108, -72), w1)
+    pygame.draw.lines(ov, (*_HUD_RING_HI, 130), False,
+                      _arc_points(cx, cy, r_out, 72, 108), w1)
+    surface.blit(ov, (0, 0))
 
 
 def _soft_glow(glow_img):
@@ -399,7 +430,7 @@ def _time_layout():
         accent_img = accent_font.render(_seconds_string(), True, _HUD_SEC)
 
     center_y = int(theme.SIZE * _TIME_CY)
-    gap = theme.s(10)
+    gap = theme.s(4)  # seconds hug the time (mockup ~8px on the 720 canvas)
     # Centre the time itself on the axis; the accent overhangs to the right so
     # the big digits line up with the pill and sun chips.
     time_rect = time_img.get_rect(center=(theme.CENTER_X, center_y))
@@ -428,7 +459,7 @@ def _draw_date(surface, time_rect) -> None:
     date_str = _date_string(now).replace(",", "")
     date_str = f"{date_str} {now.year}".upper()
     font = _sg(int(theme.SIZE * _DATE_FR), "regular")
-    cy = time_rect.bottom + theme.s(8) + font.get_height() // 2
+    cy = time_rect.bottom + theme.s(4) + font.get_height() // 2
     _blit_spaced(surface, date_str, font, _HUD_DATE, (theme.CENTER_X, cy), theme.s(4))
 
 
@@ -683,4 +714,20 @@ def draw_clock(surface):
         _draw_sun_chips(surface, wx)
 
     nav.draw_footer_buttons(surface, list(FOOTER_BUTTONS))
-    weather_icons.draw_attribution(surface)
+    _draw_attribution_arc(surface)
+
+
+def _draw_attribution_arc(surface) -> None:
+    """Tomorrow.io credit curved along the bottom rim so it sits in the dial's
+    layout instead of a straight line under everything."""
+    text = weather_icons.ATTRIBUTION
+    try:
+        font = draw.load_font(max(8, theme.s(9)))
+        items = [font.render(ch, True, _HUD_COND) for ch in text]
+    except Exception:
+        return
+    r = int(theme.VISIBLE_RADIUS * 0.94)
+    arc_ui.blit_arc_items(
+        surface, items, r=r, mid=math.pi / 2, bottom=True,
+        cx=theme.CENTER_X, cy=theme.CENTER_Y,
+    )
