@@ -175,7 +175,7 @@ def _fmt_time(value) -> str:
         return "—"
 
 
-def _parse_days(intervals: list, max_days: int = 3) -> list[dict]:
+def _parse_days(intervals: list, max_days: int = 5) -> list[dict]:
     """Normalize provider intervals without caching localized presentation."""
     days = []
     today = _today()

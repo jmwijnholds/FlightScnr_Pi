@@ -13,6 +13,7 @@ weather-icon rendering so the two screens read as one system."""
 
 import math
 import re
+from datetime import datetime
 
 import pygame
 
@@ -128,11 +129,11 @@ def draw_forecast(surface):
 
     wx = weather_data.refresh() or weather_data.snapshot()
 
-    # Header: LOCATION · HH:MM (or just the time when no place name is known).
+    # Header: LOCATION · HH:MM, or DATE · HH:MM when no place name is known.
     t, ap = ck._time_strings()
     when = f"{t} {ap}".strip()
-    loc = _location_label(wx)
-    header = f"{loc} · {when}" if loc else when
+    lead = _location_label(wx) or ck._date_string(datetime.now()).replace(",", "")
+    header = f"{lead} · {when}"
     ck._blit_spaced(surface, header.upper(), ck._sg(int(S * 0.018), "regular"),
                     ck._HUD_DATE, (theme.CENTER_X, int(S * 0.086)), theme.s(3))
 
