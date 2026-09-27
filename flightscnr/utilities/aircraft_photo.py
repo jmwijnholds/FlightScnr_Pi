@@ -310,6 +310,10 @@ def _resolve_airframe_pin(hex_id: str, registration: str = "") -> dict[str, str]
 def _cache_entry_usable(entry: dict, *, type_code: str = "", hex_id: str = "") -> bool:
     if int(entry.get("logic_version") or 0) < PHOTO_LOGIC_VERSION:
         return False
+    # Balloons never get a meaningful aircraft photo — drop any cached hit
+    # (e.g. a stale Commons type-name match) so the detail shows the icon.
+    if _is_balloon_type_code(entry.get("type_code") or type_code):
+        return False
     # Airframe pins: drop cached photos that aren't the pinned planespotters page.
     hid = normalize_icao_hex(hex_id or entry.get("hex") or "")
     airframe_pin = _resolve_airframe_pin(hid) if hid else None
@@ -396,6 +400,21 @@ def _is_heli_type_code(type_code: str) -> bool:
         from display.round_touch.aircraft_type_icons import _category_for_type
 
         return _category_for_type(code) in ("helicopter", "military-helicopter")
+    except Exception:
+        return False
+
+
+def _is_balloon_type_code(type_code: str) -> bool:
+    """Balloons (ICAO ``BALL``) have no useful airframe photo: planespotters
+    has none and a Commons type-name search matches unrelated results (e.g.
+    the airline 'Firefly' for a Firefly balloon). Treat them as photo-less."""
+    code = normalize_type_code(type_code)
+    if not code:
+        return False
+    try:
+        from display.round_touch.aircraft_type_icons import _category_for_type
+
+        return _category_for_type(code) == "balloon"
     except Exception:
         return False
 
@@ -929,8 +948,15 @@ def lookup_aircraft_photo(
     type_code = normalize_type_code(aircraft_type)
     reg = normalize_registration(registration)
 
-    meta = _load_meta()
     now = time.time()
+    # Balloons have no useful airframe photo; any lookup (planespotters or a
+    # Commons type-name search) returns an unrelated aircraft. Record a miss so
+    # the detail falls back to the balloon icon instead.
+    if _is_balloon_type_code(type_code):
+        _store_miss(hex_id, now)
+        return None
+
+    meta = _load_meta()
     pin = _resolve_airframe_pin(hex_id, reg)
     with _lock:
         entry = meta.get(hex_id)
