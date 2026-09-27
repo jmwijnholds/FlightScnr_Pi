@@ -109,6 +109,11 @@ SCREEN_FORECAST = "forecast"
 SCREEN_TRACKED = "tracked"
 SCREEN_LIVE = "live_tracking"
 SCREEN_WIFI_SETUP = "wifi_setup"
+
+# Follow: hold the last known fix this long when a low/patchy ADS-B target
+# (balloons, low aircraft) briefly drops its position, so the map does not
+# blink out to an empty panel on each gap.
+FOLLOW_POS_HOLD_S = 45.0
 SCREEN_DISCLAIMER = "disclaimer"
 SCREEN_UPDATE_NOTES = "update_notes"
 
@@ -269,6 +274,8 @@ class RoundTouchDisplay:
         self._live_map_last_radius_km = 8.0
         self._live_map_last_source: str | None = None
         self._live_map_inflight = False
+        # (lat, lon, ts) of the followed target's last known fix.
+        self._follow_last_pos: tuple[float, float, float] | None = None
         self._live_map_redraw = False
         self._follow_photo_open = False
         self._aircraft_photos: dict[str, dict] = {}
@@ -1289,6 +1296,17 @@ class RoundTouchDisplay:
         lon = overlay.get("plane_longitude")
         if lon is None:
             lon = overlay.get("longitude")
+
+        # Low or patchy ADS-B targets drop their fix for a frame or two; hold
+        # the last known position briefly so the map keeps rendering instead of
+        # blanking to an empty panel on each gap (see FOLLOW_POS_HOLD_S).
+        now_pos = time.time()
+        if lat is not None and lon is not None:
+            self._follow_last_pos = (float(lat), float(lon), now_pos)
+        else:
+            held = getattr(self, "_follow_last_pos", None)
+            if held is not None and (now_pos - held[2]) <= FOLLOW_POS_HOLD_S:
+                lat, lon = held[0], held[1]
 
         heading = overlay.get("heading", 0) or 0
         radius_km = self._live_map_last_radius_km
@@ -4180,6 +4198,7 @@ class RoundTouchDisplay:
         from utilities.overhead import set_tracked_callsign
 
         set_tracked_callsign(callsign)
+        self._follow_last_pos = None  # don't reuse the previous target's fix
         self._open_screen(SCREEN_LIVE)
         self._safe_draw()
 
