@@ -58,11 +58,13 @@ def _draw_day_cards(surface, ck, days, unit) -> None:
     if n == 0:
         return
     S = theme.SIZE
-    margin = int(S * 0.114)
+    margin = int(S * 0.120)
     gap = int(S * 0.010)
     card_w = (S - 2 * margin - gap * (n - 1)) // n
-    card_h = int(S * 0.150)
-    card_top = int(S * 0.835) - card_h
+    card_h = int(S * 0.145)
+    # Keep the strip in the wide middle band; lower down the round bezel clips
+    # the outer cards' corners and their bottom edge.
+    card_top = int(S * 0.695) - card_h
     radius = int(S * 0.019)
     label_font = ck._sg(int(S * 0.0175), "medium")
     hi_font = ck._sg(int(S * 0.020), "medium")
