@@ -41,15 +41,15 @@ _HUD_ATTR = (60, 96, 72)   # very low-key: the Tomorrow.io credit stays, quietly
 # Font sizes as a fraction of the dial, matched to the design mockup's pixels.
 _TIME_FR = 0.235
 _SEC_FR = 0.050
-_DATE_FR = 0.033
-_TEMP_FR = 0.028
-_COND_FR = 0.024
-_SUN_FR = 0.024
+_DATE_FR = 0.037
+_TEMP_FR = 0.031
+_COND_FR = 0.026
+_SUN_FR = 0.026
 
 # Vertical anchors as a fraction of the dial (resolution independent).
 _WEATHER_CY = 0.235
 _TIME_CY = 0.50
-_SUN_CY = 0.80
+_SUN_CY = 0.72
 
 # Space Grotesk (bundled, OFL) — the clock face's display typeface.
 _SG_DIR = os.path.join(
@@ -480,7 +480,7 @@ def _draw_weather_pill(surface, wx) -> None:
     if cond == "—":
         cond = ""
 
-    icon_size = int(theme.SIZE * 0.036)
+    icon_size = int(theme.SIZE * 0.040)
     pad_x = theme.s(15)
     gap = theme.s(8)
     cy = int(theme.SIZE * _WEATHER_CY)
@@ -524,7 +524,7 @@ def _draw_sun_chips(surface, wx) -> None:
     if sunrise == "—" and sunset == "—":
         return
     font = _sg(int(theme.SIZE * _SUN_FR), "regular")
-    icon_size = int(theme.SIZE * 0.030)
+    icon_size = int(theme.SIZE * 0.034)
     mid_y = int(theme.SIZE * _SUN_CY)
     offset = theme.s(40)
     gap = theme.s(5)
