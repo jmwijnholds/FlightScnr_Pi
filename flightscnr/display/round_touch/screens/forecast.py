@@ -59,18 +59,18 @@ def _draw_day_cards(surface, ck, days, unit) -> None:
     if n == 0:
         return
     S = theme.SIZE
-    margin = int(S * 0.120)
-    gap = int(S * 0.010)
+    margin = int(S * 0.110)
+    gap = int(S * 0.011)
     card_w = (S - 2 * margin - gap * (n - 1)) // n
-    card_h = int(S * 0.145)
-    # Keep the strip in the wide middle band; lower down the round bezel clips
-    # the outer cards' corners and their bottom edge.
-    card_top = int(S * 0.695) - card_h
-    radius = int(S * 0.019)
-    label_font = ck._sg(int(S * 0.0175), "medium")
-    hi_font = ck._sg(int(S * 0.020), "medium")
-    lo_font = ck._sg(int(S * 0.0175), "regular")
-    icon_size = int(S * 0.034)
+    card_h = int(S * 0.172)
+    # Centre the strip in the wide middle band (well clear of the rim, which
+    # clips the outer cards lower down).
+    card_top = int(S * 0.600) - card_h // 2
+    radius = int(S * 0.020)
+    label_font = ck._sg(int(S * 0.019), "medium")
+    hi_font = ck._sg(int(S * 0.024), "medium")
+    lo_font = ck._sg(int(S * 0.019), "regular")
+    icon_size = int(S * 0.044)
     hi_lo = tuple(theme.SWEEP[:3])
 
     for i, day in enumerate(days):
@@ -89,13 +89,13 @@ def _draw_day_cards(surface, ck, days, unit) -> None:
         label = str(day.get("label") or tr("forecast.day_number", number=i + 1))
         limg = label_font.render(label.upper(), True,
                                  theme.SWEEP if today else ck._HUD_SUB)
-        surface.blit(limg, limg.get_rect(midtop=(ccx, card_top + int(S * 0.014))))
+        surface.blit(limg, limg.get_rect(midtop=(ccx, card_top + int(card_h * 0.12))))
 
         kind = ck._wx_icon_kind(day.get("weather_code"), False)
         ck._blit_icon(surface, ck._icon(kind, icon_size, ck._WX_ICON),
-                      ccx, card_top + int(S * 0.060))
+                      ccx, card_top + int(card_h * 0.44))
 
-        y = card_top + int(S * 0.092)
+        y = card_top + int(card_h * 0.66)
         hi, lo = day.get("temp_max"), day.get("temp_min")
         if hi is not None:
             himg = hi_font.render(f"{int(round(hi))}°", True, ck._HUD_TIME)
