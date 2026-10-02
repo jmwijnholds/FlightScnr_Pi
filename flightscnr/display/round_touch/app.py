@@ -4829,6 +4829,15 @@ class RoundTouchDisplay:
                 else:
                     self._safe_draw()
                 return
+            which = flight_detail.chip_hit(tap[0], tap[1])
+            if which:
+                flight_detail.toggle_units(which)
+                self._safe_draw()
+                return
+            if flight_detail.hero_hit(tap[0], tap[1]):
+                flight_detail.toggle_hero()
+                self._safe_draw()
+                return
             if flight_detail.follow_button_hit(tap[0], tap[1]):
                 self._request_follow_current_flight()
                 return
