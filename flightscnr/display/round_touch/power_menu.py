@@ -28,6 +28,7 @@ across the set, and are tinted to the row accent at draw time.
 
 from __future__ import annotations
 
+import math
 import os
 
 import pygame
@@ -77,12 +78,21 @@ def _resolve(accent):
 
 
 # (token, label key, hint key or None, accent, selected)
+# Order mirrors the HUD mockup: screen off, reboot, shut down, restart app.
 _MENU_ROWS = (
     ("screen_off", "power.screen_off", "power.screen_off.hint", "brand", True),
-    ("restart", "power.restart", None, _GREY, False),
     ("reboot", "power.reboot", None, _AMBER, False),
     ("shutdown", "power.shutdown", None, _RED, False),
+    ("restart", "power.restart", None, _GREY, False),
 )
+
+# token -> thin-outline vector glyph drawn inside the row badge (mockup icons).
+_MENU_GLYPH = {
+    "screen_off": "moon",
+    "reboot": "reboot",
+    "shutdown": "power",
+    "restart": "restart",
+}
 
 # action -> (confirm title key, detail key, confirm button label key, accent)
 _CONFIRM = {
@@ -212,13 +222,93 @@ def _draw_power_symbol(surface, cx: int, cy: int, r: int, color, width: int) -> 
     )
 
 
-def _row_icon(surface, token: str, cx: int, cy: int, color) -> None:
-    size = theme.s(16)  # sits inside the badge circle with padding
-    if _blit_glyph(surface, token, cx, cy, size, color):
+# --- thin-outline vector glyphs (match the HUD mockup) -----------------------
+# Drawn on a 4x supersampled surface and smooth-scaled down for clean, crisp
+# strokes at small sizes. All geometry is in a 24-unit box (SVG-style viewBox).
+def _arc_points(cx, cy, r, a0, a1, steps=56):
+    out = []
+    for i in range(steps + 1):
+        a = a0 + (a1 - a0) * (i / steps)
+        out.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    return out
+
+
+def _stroke(s, col, pts, w) -> None:
+    if len(pts) >= 2:
+        pygame.draw.lines(s, col, False,
+                          [(int(round(x)), int(round(y))) for x, y in pts], w)
+    # round the ends so joined arcs read as one smooth line
+    for x, y in (pts[0], pts[-1]):
+        pygame.draw.circle(s, col, (int(round(x)), int(round(y))), max(1, w // 2))
+
+
+def _vg_power(s, n, col, w) -> None:
+    """IEC power glyph: a ring open at the top with a bar through the gap."""
+    u = n / 24.0
+    cx = n / 2.0
+    r = 7.8 * u
+    g = math.radians(34)
+    top = -math.pi / 2
+    _stroke(s, col, _arc_points(cx, n / 2.0, r, top + g, top + 2 * math.pi - g), w)
+    pygame.draw.line(s, col, (int(cx), int(3.2 * u)), (int(cx), int(12 * u)), w)
+
+
+def _vg_moon(s, n, col, w) -> None:
+    """Crescent (C opening to the right): a 250 deg outer back + a concave belly."""
+    u = n / 24.0
+    # outer back of the C (opens on the right)
+    _stroke(s, col, _arc_points(13 * u, 12 * u, 9.0 * u,
+                                math.radians(50), math.radians(310)), w)
+    # terminator: belly of the C, bulging left into the disk, meeting both cusps
+    _stroke(s, col, _arc_points(21 * u, 12 * u, 7.24 * u,
+                                math.radians(107.7), math.radians(252.3)), w)
+
+
+def _vg_refresh(s, n, col, w) -> None:
+    """Circular arrow (reload): a ring open at top with an arrowhead at one end."""
+    u = n / 24.0
+    cx = cy = n / 2.0
+    r = 7.0 * u
+    g = math.radians(50)
+    top = -math.pi / 2
+    a0, a1 = top + g, top + 2 * math.pi - g
+    _stroke(s, col, _arc_points(cx, cy, r, a0, a1), w)
+    # arrowhead at the a1 end, aimed along the tangent (into the top gap)
+    hx = cx + r * math.cos(a1)
+    hy = cy + r * math.sin(a1)
+    tdir = (-math.sin(a1), math.cos(a1))   # tangent, increasing-angle direction
+    ndir = (math.cos(a1), math.sin(a1))    # radial (badge outward)
+    ln, wd = 6.4 * u, 4.2 * u
+    tip = (hx + tdir[0] * ln, hy + tdir[1] * ln)
+    b1 = (hx + ndir[0] * wd, hy + ndir[1] * wd)
+    b2 = (hx - ndir[0] * wd, hy - ndir[1] * wd)
+    pygame.draw.polygon(s, col, [(int(round(tip[0])), int(round(tip[1]))),
+                                 (int(round(b1[0])), int(round(b1[1]))),
+                                 (int(round(b2[0])), int(round(b2[1])))])
+
+
+_VG = {"power": _vg_power, "moon": _vg_moon, "reboot": _vg_refresh,
+       "restart": _vg_refresh}
+
+
+def _vector_icon(surface, kind: str, cx: int, cy: int, size: int, color) -> None:
+    fn = _VG.get(kind)
+    if fn is None or size <= 0:
         return
-    # Procedural fallback if assets are absent (tests / incomplete checkout).
-    w = max(2, theme.s(1.5))
-    _draw_power_symbol(surface, cx, cy, theme.s(11), color, w)
+    ss = 4
+    n = max(2, int(round(size))) * ss
+    s = pygame.Surface((n, n), pygame.SRCALPHA)
+    w = max(2, int(round(1.7 * n / 24.0)))
+    col = tuple(int(c) for c in color[:3])
+    fn(s, n, col, w)
+    if kind == "reboot":  # base refresh points counter-clockwise; mirror for reboot
+        s = pygame.transform.flip(s, True, False)
+    glyph = pygame.transform.smoothscale(s, (int(round(size)), int(round(size))))
+    surface.blit(glyph, glyph.get_rect(center=(int(cx), int(cy))))
+
+
+def _row_icon(surface, token: str, cx: int, cy: int, color) -> None:
+    _vector_icon(surface, _MENU_GLYPH.get(token, "power"), cx, cy, theme.s(9), color)
 
 
 def _draw_card(surface, rect, radius) -> None:
@@ -269,67 +359,81 @@ def draw_menu(surface) -> None:
     cx = theme.CENTER_X
     brand = _brand()
 
-    header_font = draw.load_font(theme.s(13), bold=True)
-    label_font = draw.load_font(theme.s(15), bold=True)
-    sub_font = draw.load_font(theme.s(11))
+    header_font = draw.load_font(theme.s(8), bold=True)
+    label_font = draw.load_font(theme.s(9), bold=True)
+    sub_font = draw.load_font(theme.s(6))
+    close_font = draw.load_font(theme.s(6))
 
-    card_w = theme.s(272)
-    radius = theme.s(15)
-    gap = theme.s(9)
-    header_h = theme.s(26)
-    header_gap = theme.s(14)
-    row_h = {"screen_off": theme.s(54), "reboot": theme.s(44),
-             "shutdown": theme.s(44), "restart": theme.s(44)}
+    # --- geometry (HUD "command module": one card wrapping header + rows) ----
+    module_w = theme.s(262)
+    mod_pad_x = theme.s(11)
+    mod_pad_top = theme.s(12)
+    mod_pad_bot = theme.s(11)
+    mod_radius = theme.s(13)
+    row_radius = theme.s(8)
+    row_gap = theme.s(5)
+    header_h = theme.s(13)
+    header_gap = theme.s(9)
+    badge_r = theme.s(9)
+    icon_size = theme.s(9)
 
-    rows_h = sum(row_h[r[0]] for r in _MENU_ROWS) + gap * (len(_MENU_ROWS) - 1)
-    total_h = header_h + header_gap + rows_h
-    top = theme.CENTER_Y - total_h // 2
+    row_w = module_w - 2 * mod_pad_x
+    row_h = {"screen_off": theme.s(35), "reboot": theme.s(30),
+             "shutdown": theme.s(30), "restart": theme.s(30)}
+    rows_h = sum(row_h[r[0]] for r in _MENU_ROWS) + row_gap * (len(_MENU_ROWS) - 1)
+    inner_h = header_h + header_gap + rows_h
+    module_h = mod_pad_top + inner_h + mod_pad_bot
 
-    # header: power glyph + letter-spaced title, centred
+    module = pygame.Rect(0, 0, module_w, module_h)
+    module.center = (cx, theme.CENTER_Y)
+
+    # outer command module: dark glass + a hairline brand border
+    _rrect(surface, module, (9, 16, 12, 192), mod_radius)
+    _rrect(surface, module, (*brand, 48), mod_radius, width=max(1, theme.s(1)))
+
+    # header: power glyph + letter-spaced title, centred inside the module
     caption = _letter_spaced(header_font, tr("power.title").upper(), brand, theme.s(3))
-    glyph_cell = theme.s(18)
-    group_w = glyph_cell + theme.s(8) + caption.get_width()
+    glyph_cell = theme.s(10)
+    group_w = glyph_cell + theme.s(5) + caption.get_width()
     gx = cx - group_w // 2
-    hcy = top + header_h // 2
-    if not _blit_glyph(surface, "shutdown", gx + glyph_cell // 2, hcy, glyph_cell, brand):
-        _draw_power_symbol(
-            surface, gx + glyph_cell // 2, hcy, theme.s(9), brand, max(2, theme.s(2))
-        )
-    surface.blit(caption, caption.get_rect(midleft=(gx + glyph_cell + theme.s(8), hcy)))
+    hcy = module.top + mod_pad_top + header_h // 2
+    _vector_icon(surface, "power", gx + glyph_cell // 2, hcy, glyph_cell, brand)
+    surface.blit(caption, caption.get_rect(midleft=(gx + glyph_cell + theme.s(5), hcy)))
 
-    y = top + header_h + header_gap
-    badge_r = theme.s(14)
+    # rows
+    y = module.top + mod_pad_top + header_h + header_gap
+    row_left = cx - row_w // 2
     for token, label_key, hint_key, accent, selected in _MENU_ROWS:
         accent = _resolve(accent)
         h = row_h[token]
-        row = pygame.Rect(cx - card_w // 2, int(y), card_w, h)
-        # card fill + border (selected row gets an accent wash + border)
-        _rrect(surface, row, (*brand, 30) if selected else _ROW_FILL, radius)
-        _rrect(surface, row, (*brand, 230) if selected else _ROW_BORDER, radius,
-               width=theme.s(2) if selected else max(1, theme.s(1)))
-        # Circular icon badge: a faint accent fill + a thin accent ring with
-        # the glyph inside (matches the mockup; bare glyphs read as unfinished).
-        bcx = row.left + theme.s(16) + badge_r
+        row = pygame.Rect(row_left, int(y), row_w, h)
+        if selected:
+            _rrect(surface, row, (*brand, 26), row_radius)
+            _rrect(surface, row, (*brand, 115), row_radius, width=max(1, theme.s(1)))
+        else:
+            _rrect(surface, row, (150, 172, 158, 12), row_radius)
+            _rrect(surface, row, (255, 255, 255, 16), row_radius, width=max(1, theme.s(1)))
+        # thin-ring badge (no fill) + outline glyph, both in the row accent
+        bcx = row.left + theme.s(9) + badge_r
         bcy = row.centery
-        badge_fill = pygame.Surface((badge_r * 2, badge_r * 2), pygame.SRCALPHA)
-        pygame.draw.circle(badge_fill, (*accent, 26), (badge_r, badge_r), badge_r)
-        surface.blit(badge_fill, (bcx - badge_r, bcy - badge_r))
-        pygame.draw.circle(surface, accent, (bcx, bcy), badge_r, max(1, theme.s(1)))
-        _row_icon(surface, token, bcx, bcy, accent)
+        ring = tuple(int(round(c)) for c in accent[:3])
+        pygame.draw.circle(surface, ring, (bcx, bcy), badge_r, max(1, theme.s(1)))
+        _vector_icon(surface, _MENU_GLYPH[token], bcx, bcy, icon_size, accent)
         # label (+ subtitle)
-        label_x = bcx + badge_r + theme.s(14)
-        label = label_font.render(tr(label_key), True, _TEXT_PRIMARY)
+        label_x = bcx + badge_r + theme.s(8)
+        label_col = _TEXT_SECONDARY if token == "restart" else _TEXT_PRIMARY
+        label = label_font.render(tr(label_key), True, label_col)
         if hint_key:
             sub = sub_font.render(tr(hint_key), True, _TEXT_SECONDARY)
-            surface.blit(label, label.get_rect(bottomleft=(label_x, bcy + theme.s(1))))
-            surface.blit(sub, sub.get_rect(topleft=(label_x, bcy + theme.s(4))))
+            surface.blit(label, label.get_rect(bottomleft=(label_x, bcy)))
+            surface.blit(sub, sub.get_rect(topleft=(label_x, bcy + theme.s(3))))
         else:
             surface.blit(label, label.get_rect(midleft=(label_x, bcy)))
         _menu_buttons.append((token, row.copy()))
-        y += h + gap
+        y += h + row_gap
 
-    close_hint = sub_font.render(tr("power.close_hint"), True, _TEXT_HINT)
-    surface.blit(close_hint, close_hint.get_rect(midtop=(cx, int(y) + theme.s(4))))
+    close = _letter_spaced(close_font, tr("power.close_hint"), _TEXT_HINT, theme.s(1))
+    surface.blit(close, close.get_rect(midtop=(cx, module.bottom + theme.s(10))))
 
 
 def menu_hit(x: int, y: int) -> str | None:
