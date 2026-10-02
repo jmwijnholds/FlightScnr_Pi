@@ -1368,7 +1368,7 @@ class RoundTouchDisplay:
         if self.screen in (SCREEN_TRACKED, SCREEN_LIVE) and tracked.is_pinned():
             return None
         if self.screen == SCREEN_FLIGHT:
-            return float(settings.flight_detail_timeout_s())
+            return None  # no idle auto-return; leave the detail screen by swiping
         if self.screen == SCREEN_FIRE:
             return float(settings.flight_detail_timeout_s())
         if self.screen == SCREEN_QUAKE:
@@ -4666,8 +4666,8 @@ class RoundTouchDisplay:
                 self._maybe_enrich_flight_detail()
                 self._note_activity()
                 self._safe_draw()
-        elif self.screen == SCREEN_FLIGHT and swipe == input_handler.SWIPE_DOWN:
-            # Swipe down dismisses back to the radar (replaces the radar button).
+        elif self.screen == SCREEN_FLIGHT and swipe == input_handler.SWIPE_UP:
+            # Swipe up dismisses back to the radar (replaces the radar button).
             self._return_to_radar()
             self._note_activity()
             self._safe_draw()
