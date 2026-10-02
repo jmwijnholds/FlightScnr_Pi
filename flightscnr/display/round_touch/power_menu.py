@@ -49,6 +49,10 @@ _GREY = (150, 162, 173)     # restart app (low emphasis)
 
 _ROW_FILL = (14, 23, 17, 212)
 _ROW_BORDER = (255, 255, 255, 22)
+# Opaque (alpha 255) row fills for the menu, so buttons read clearly over the
+# translucent scrim without turning the whole overlay solid.
+_ROW_FILL_OPAQUE = (18, 27, 22, 255)
+_ROW_FILL_SELECTED = (16, 40, 24, 255)
 _CARD_FILL = (13, 21, 16, 240)
 _CARD_BORDER = (255, 255, 255, 22)
 _SHADOW = (0, 0, 0, 120)
@@ -398,12 +402,13 @@ def draw_menu(surface) -> None:
         accent = _resolve(accent)
         h = row_h[token]
         row = pygame.Rect(row_left, int(y), row_w, h)
+        # Opaque row fills so the buttons stay crisp over the see-through scrim.
         if selected:
-            _rrect(surface, row, (*brand, 26), row_radius)
-            _rrect(surface, row, (*brand, 110), row_radius, width=max(1, theme.s(1)))
+            _rrect(surface, row, _ROW_FILL_SELECTED, row_radius)
+            _rrect(surface, row, (*brand, 150), row_radius, width=max(1, theme.s(1)))
         else:
-            _rrect(surface, row, (150, 172, 158, 14), row_radius)
-            _rrect(surface, row, (255, 255, 255, 18), row_radius, width=max(1, theme.s(1)))
+            _rrect(surface, row, _ROW_FILL_OPAQUE, row_radius)
+            _rrect(surface, row, (255, 255, 255, 30), row_radius, width=max(1, theme.s(1)))
         # thin-ring badge (no fill) + outline glyph, both in the row accent
         bcx = row.left + theme.s(16) + badge_r
         bcy = row.centery
