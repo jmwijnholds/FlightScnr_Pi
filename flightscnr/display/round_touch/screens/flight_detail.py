@@ -290,7 +290,7 @@ def _draw_map_panel(surface, rect, f, radius):
                     pygame.draw.circle(panel, (*_ACC_HI, 160), (int(p[0]), int(p[1])), 2)
 
         lf = ck._sg(theme.s(8), "bold")
-        for pt, code, below in ((o, f.get("origin"), True), (d, f.get("destination"), False)):
+        for pt, code, below in ((o, f.get("origin"), True), (d, f.get("destination"), True)):
             xy = to_xy(pt[0], pt[1])
             pygame.draw.circle(panel, _ACC_HI, (int(xy[0]), int(xy[1])), theme.s(3))
             pygame.draw.circle(panel, _BG, (int(xy[0]), int(xy[1])), max(1, theme.s(2)))
