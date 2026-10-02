@@ -18,12 +18,15 @@ live in ``utilities.system_control`` and are invoked by the app. Screen off is
 a manual backlight-off state cleared on the next touch.
 
 Style: a frosted, dimmed copy of the live screen, a letter-spaced POWER header,
-and separate rounded row cards. Each row carries a tinted glyph (accent tracks
-theme; amber for reboot, red for shut down, grey for restart); the default row
-is highlighted with an accent border.
+and a single rounded command module wrapping the rows (matches the HUD mockup).
+Each row carries a thin-outline vector glyph in a hairline ring badge (accent
+tracks theme; amber for reboot, red for shut down, grey for restart); the
+default row is highlighted with an accent wash.
 
-Row glyphs load from ``assets/power/{token}.png`` (white + alpha), stroke-matched
-across the set, and are tinted to the row accent at draw time.
+Row glyphs are drawn as supersampled vector outlines (crescent, reload arrows,
+power ring). ``blit_glyph`` is shared with the System settings page and falls
+back to ``assets/power/{token}.png`` (white + alpha) for tokens without a
+vector, e.g. wifi_setup.
 """
 
 from __future__ import annotations
@@ -185,12 +188,27 @@ def _load_glyph(token: str, size: int) -> pygame.Surface | None:
         return None
 
 
-def blit_glyph(surface, token: str, cx: int, cy: int, size: int, color) -> bool:
-    """Tint a white+alpha power glyph to ``color`` and blit centered.
+# action token -> thin-outline vector glyph (shared with the power menu rows).
+# Tokens without an entry (e.g. wifi_setup) fall back to the PNG asset.
+_GLYPH_VECTOR = {
+    "shutdown": "power",
+    "reboot": "reboot",
+    "restart": "restart",
+    "screen_off": "moon",
+}
 
-    Public for the System settings page (same assets as the power menu).
-    Returns True on success.
+
+def blit_glyph(surface, token: str, cx: int, cy: int, size: int, color) -> bool:
+    """Draw a power glyph centered on ``surface``, tinted to ``color``.
+
+    Public for the System settings page. Uses the thin-outline vector glyphs
+    where one exists (so Settings matches the power menu) and falls back to the
+    white+alpha PNG asset otherwise (e.g. wifi_setup). Returns True on success.
     """
+    kind = _GLYPH_VECTOR.get(token)
+    if kind is not None:
+        _vector_icon(surface, kind, cx, cy, size, color)
+        return True
     return _blit_glyph(surface, token, cx, cy, size, color)
 
 
@@ -211,15 +229,6 @@ def _blit_glyph(surface, token: str, cx: int, cy: int, size: int, color) -> bool
         return False
     surface.blit(tinted, tinted.get_rect(center=(cx, cy)))
     return True
-
-
-def _draw_power_symbol(surface, cx: int, cy: int, r: int, color, width: int) -> None:
-    """Fallback IEC power glyph when the PNG asset is missing."""
-    pygame.draw.circle(surface, color, (cx, cy), int(r * 0.62), width)
-    pygame.draw.line(
-        surface, color,
-        (cx, cy - int(r * 0.85)), (cx, cy - int(r * 0.05)), width,
-    )
 
 
 # --- thin-outline vector glyphs (match the HUD mockup) -----------------------
@@ -307,10 +316,6 @@ def _vector_icon(surface, kind: str, cx: int, cy: int, size: int, color) -> None
     surface.blit(glyph, glyph.get_rect(center=(int(cx), int(cy))))
 
 
-def _row_icon(surface, token: str, cx: int, cy: int, color) -> None:
-    _vector_icon(surface, _MENU_GLYPH.get(token, "power"), cx, cy, theme.s(9), color)
-
-
 def _draw_card(surface, rect, radius) -> None:
     sh = rect.inflate(theme.s(12), theme.s(12))
     sh.move_ip(0, theme.s(3))
@@ -334,9 +339,7 @@ def draw_icon(surface, cx: int, cy: int) -> None:
     global _icon_rect
     size = theme.s(22)
     color = tuple(int(round(c * 0.62)) for c in theme.SWEEP[:3])
-    if not _blit_glyph(surface, "shutdown", cx, cy, size, color):
-        r = theme.s(14)
-        _draw_power_symbol(surface, cx, cy, r, color, max(2, theme.s(2)))
+    _vector_icon(surface, "power", cx, cy, size, color)
     hit = size + theme.s(16)
     _icon_rect = pygame.Rect(0, 0, hit, hit)
     _icon_rect.center = (cx, cy)
