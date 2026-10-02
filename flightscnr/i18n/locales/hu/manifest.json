@@ -1,11 +1,13 @@
 {
   "schema_version": 1,
-  "locale": "en",
-  "native_name": "English",
-  "english_name": "English",
+  "locale": "hu",
+  "native_name": "Magyar",
+  "english_name": "Hungarian",
   "direction": "ltr",
   "fallback": "en",
   "source_catalog_revision": 12,
   "license": "CC-BY-NC-SA-4.0",
-  "authors": ["Yash Mulgaonkar (source text)"]
+  "authors": [
+    "Csaba Csanaki"
+  ]
 }

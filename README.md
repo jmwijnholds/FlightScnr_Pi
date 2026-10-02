@@ -19,11 +19,11 @@ A round **4″ touch display** flight and marine tracker for Raspberry Pi. Dark 
 
 Live aircraft (and optional marine traffic) on a circular radar, with rich detail screens when you tap. Powered by **FR24**, **[adsb.fi](https://adsb.fi)**, optional local dump1090/readsb, **Tomorrow.io** weather, optional precipitation from **[LibreWXR](https://librewxr.net/)** (RainViewer fallback), optional route enrichment, **USGS earthquakes**, and wildfire layers (CAL FIRE / NIFC / NASA FIRMS). Configure everything from the web portal. Full detail: [Features wiki](https://github.com/yashmulgaonkar/FlightScnr_Pi/wiki/Features).
 
-Current release: **2026.8.21.2** on `main`.
+Current release: **2026.10.1.1** on `main`.
 
 ### Screens
 
-Radar home, flight detail, **tracked flight** with route map, **Follow / Live** map, and clock / weather — swipe between them on the 720×720 round touch display. **Swipe right** on radar opens Tracked (when a track is active), then again for Follow / Live. **Swipe left** cycles Home and saved favorite locations.
+Radar home, flight detail, **tracked flight** with route map, **Follow / Live** map, clock faces (digital, analog, night altimeter, Flieger) plus moon and forecast, an airport METAR card, and a split-flap **arrivals / departures** board — swipe between them on the 720×720 round touch display. **Swipe right** on radar opens Tracked (when a track is active), then again for Follow / Live. **Swipe left** opens the arrivals board. Saved favorite locations open from the HUD **Home** icon or Settings → Options.
 
 <table>
 <tr>
@@ -64,7 +64,7 @@ Radar home, flight detail, **tracked flight** with route map, **Follow / Live** 
 
 The clock, date, forecast, Tomorrow.io weather descriptions, portal settings
 overview, and **Language & Region** controls can use English, Dutch, German,
-French, or Spanish. English remains the safe default and per-message fallback.
+French, Spanish, or Hungarian. English remains the safe default and per-message fallback.
 Choose a language and date order independently on-device under **Settings →
 Display** or in the web portal; **System** language detection is available as
 an explicit choice but is never selected automatically.
@@ -209,7 +209,7 @@ Optional **LiveATC** streams to a USB or Bluetooth speaker — pick airport and 
 </tr>
 </table>
 
-Also included: scrollable **list pickers** for on-device settings, portal **Route Sources** / **Position Sources**, alert mode, facing / orientation, favorite locations (swipe-left cycle), a boot safety disclaimer, and portal OTA (**Update Now**, **Later tonight**, **Finish install**, **Repair & Update**). See the [Features wiki](https://github.com/yashmulgaonkar/FlightScnr_Pi/wiki/Features) for the full list.
+Also included: scrollable **list pickers** for on-device settings, portal **Route Sources** / **Position Sources**, alert mode, facing / orientation, favorite locations (HUD Home icon), optional **LoFi** under LiveATC, a boot safety disclaimer, and portal OTA (**Update Now**, **Later tonight**, off-hours auto-install, **Finish install**, **Repair & Update**). See the [Features wiki](https://github.com/yashmulgaonkar/FlightScnr_Pi/wiki/Features) for the full list.
 
 ---
 

@@ -42,6 +42,38 @@ class TestAircraftTypeIcons(unittest.TestCase):
         self.assertFalse(is_ground_vehicle({"kind": "vessel", "plane": "GRND"}))
         self.assertFalse(is_ground_vehicle(None))
 
+    def test_stationary_c0_with_registration_not_flagged(self):
+        from display.round_touch.aircraft_type_icons import is_ground_vehicle
+
+        # A stray registration on a C0 report must never be treated as a
+        # ground target — real aircraft never report category set C anyway,
+        # but this guards the "no type/registration" branch explicitly.
+        self.assertFalse(
+            is_ground_vehicle(
+                {
+                    "adsb_category": "C0",
+                    "on_ground": True,
+                    "altitude": 0,
+                    "ground_speed": 0,
+                    "registration": "D-ABCD",
+                }
+            )
+        )
+
+    def test_stationary_c0_airborne_not_flagged(self):
+        from display.round_touch.aircraft_type_icons import is_ground_vehicle
+
+        self.assertFalse(
+            is_ground_vehicle(
+                {
+                    "adsb_category": "C0",
+                    "on_ground": True,
+                    "altitude": 150,
+                    "ground_speed": 0,
+                }
+            )
+        )
+
     def test_ops_callsign_icon(self):
         from display.round_touch.aircraft_type_icons import icon_category
 
