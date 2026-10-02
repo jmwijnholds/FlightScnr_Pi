@@ -209,8 +209,10 @@ def _draw_map_panel(surface, rect, f, radius):
     trail = _trail_latlon(f)
     cur = (f.get("plane_latitude"), f.get("plane_longitude"))
     has_cur = _valid(cur[0], cur[1])
-    o = (f.get("origin_lat"), f.get("origin_lon"))
-    d = (f.get("dest_lat"), f.get("dest_lon"))
+    o = (f.get("origin_latitude", f.get("origin_lat")),
+         f.get("origin_longitude", f.get("origin_lon")))
+    d = (f.get("destination_latitude", f.get("dest_lat")),
+         f.get("destination_longitude", f.get("dest_lon")))
     has_o, has_d = _valid(o[0], o[1]), _valid(d[0], d[1])
 
     pts = list(trail)
@@ -250,15 +252,24 @@ def _draw_map_panel(surface, rect, f, radius):
             for i in range(0, len(rp) - 1, 2):
                 pygame.draw.line(panel, _PLAN, rp[i], rp[i + 1], 2)
 
-        # flown trail (solid, glow) + breadcrumb dots
-        tp = [proj(p[0], p[1]) for p in trail]
+        # flown path: the real FR24 trail when present, else a great-circle
+        # estimate from the origin to the current position.
+        if trail:
+            flown = list(trail)
+        elif has_o and has_cur:
+            flown = [(p[0], p[1]) for p in route_map.great_circle_points(
+                [float(o[0]), float(o[1])], [float(cur[0]), float(cur[1])], steps=30)]
+        else:
+            flown = []
+        tp = [proj(p[0], p[1]) for p in flown]
         if has_cur and (not tp or tp[-1] != proj(float(cur[0]), float(cur[1]))):
             tp.append(proj(float(cur[0]), float(cur[1])))
         if len(tp) >= 2:
             pygame.draw.lines(panel, (*_ACCENT, 70), False, tp, 7)
             pygame.draw.lines(panel, _ACCENT, False, tp, 3)
-            for p in tp[:-1:max(1, len(tp) // 6)]:
-                pygame.draw.circle(panel, (*_ACC_HI, 150), (int(p[0]), int(p[1])), 2)
+            if trail:
+                for p in tp[:-1:max(1, len(tp) // 6)]:
+                    pygame.draw.circle(panel, (*_ACC_HI, 150), (int(p[0]), int(p[1])), 2)
 
         lf = ck._sg(theme.s(8), "bold")
         if has_o:
@@ -330,27 +341,32 @@ def _draw_photo_tile(surface, rect, f, radius):
 
 
 def _chip(surface, rect, label, val, unit="", tappable=False):
-    a = 20 if tappable else 15
-    _rrect(surface, rect, (*_CHIP, a), theme.s(7))
-    _rrect(surface, rect, (*_CHIP, 82 if tappable else 50), theme.s(7), width=max(1, theme.s(1)))
-    lf = ck._sg(theme.s(6), "regular"); vf = ck._sg(theme.s(10), "bold")
+    a = 22 if tappable else 15
+    _rrect(surface, rect, (*_CHIP, a), theme.s(8))
+    _rrect(surface, rect, (*_CHIP, 95 if tappable else 55), theme.s(8), width=max(1, theme.s(1)))
+    lf = ck._sg(theme.s(7), "regular")
+    vf = ck._sg(theme.s(13), "bold")
+    uf = ck._sg(theme.s(7), "regular")
+    # label (+ unit-toggle arrows), centred near the top
     lab = lf.render(label, True, _MUTED)
-    lx = rect.centerx - lab.get_width() // 2
+    arr = _unit_arrows(theme.s(7)) if tappable else None
+    gap = theme.s(3) if tappable else 0
+    grp_w = lab.get_width() + (gap + arr.get_width() if arr else 0)
+    lx = rect.centerx - grp_w // 2
     ly = rect.top + theme.s(8)
-    if tappable:
-        lx -= theme.s(5)
-        arr = _unit_arrows(theme.s(5))
-        surface.blit(arr, (rect.centerx + lab.get_width() // 2 - theme.s(3), ly))
-    surface.blit(lab, (lx, ly - lab.get_height() // 2 + theme.s(2)))
+    surface.blit(lab, (lx, ly))
+    if arr:
+        surface.blit(arr, (lx + lab.get_width() + gap, ly + theme.s(1)))
+    # value + unit, baseline-aligned, centred
     v = vf.render(val, True, _TXT)
-    if unit:
-        uf = ck._sg(theme.s(6), "regular"); u = uf.render(" " + unit, True, _DIM)
-        tw = v.get_width() + u.get_width()
-        vx = rect.centerx - tw // 2
-        vy = rect.centery + theme.s(6)
-        surface.blit(v, (vx, vy)); surface.blit(u, (vx + v.get_width(), vy + theme.s(4)))
-    else:
-        surface.blit(v, v.get_rect(center=(rect.centerx, rect.centery + theme.s(8))))
+    u = uf.render(unit, True, _DIM) if unit else None
+    tw = v.get_width() + (theme.s(3) + u.get_width() if u else 0)
+    vx = rect.centerx - tw // 2
+    vy = rect.bottom - theme.s(11) - v.get_height()
+    surface.blit(v, (vx, vy))
+    if u:
+        surface.blit(u, (vx + v.get_width() + theme.s(3),
+                         vy + v.get_height() - u.get_height() - theme.s(2)))
 
 
 def _unit_arrows(h):
@@ -461,11 +477,11 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         rl = rf.render("  ·  ".join(parts), True, _MUTED)
         surface.blit(rl, rl.get_rect(center=(cx, theme.s(267))))
 
-    # --- chips ---
-    cw, chh, gap = theme.s(44), theme.s(31), theme.s(4)
+    # --- chips (bigger, easy to read) ---
+    cw, chh, gap = theme.s(50), theme.s(38), theme.s(4)
     total = cw * 4 + gap * 3
     x0 = cx - total // 2
-    cy = theme.s(283)
+    cy = theme.s(280)
     hdg = f.get("heading")
     hdg_s = f"{int(hdg)}°" if (hdg is not None and int(hdg) > 0) else "—"
     sv, su = _spd_parts(f)
