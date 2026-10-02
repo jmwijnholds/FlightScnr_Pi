@@ -289,18 +289,11 @@ def _draw_map_panel(surface, rect, f, radius):
                 for p in tp[:-1:max(1, len(tp) // 7)]:
                     pygame.draw.circle(panel, (*_ACC_HI, 160), (int(p[0]), int(p[1])), 2)
 
-        lf = ck._sg(theme.s(8), "bold")
-        for pt, code, below in ((o, f.get("origin"), True), (d, f.get("destination"), True)):
+        # origin/dest markers only — the city names are already on the basemap
+        for pt in (o, d):
             xy = to_xy(pt[0], pt[1])
             pygame.draw.circle(panel, _ACC_HI, (int(xy[0]), int(xy[1])), theme.s(3))
             pygame.draw.circle(panel, _BG, (int(xy[0]), int(xy[1])), max(1, theme.s(2)))
-            lab = lf.render(str(code or "").strip()[:4], True, _TXT)
-            sh = lf.render(str(code or "").strip()[:4], True, (0, 0, 0))
-            r = (lab.get_rect(midtop=(xy[0], xy[1] + theme.s(5))) if below
-                 else lab.get_rect(midbottom=(xy[0], xy[1] - theme.s(5))))
-            r.clamp_ip(local.inflate(-theme.s(4), -theme.s(4)))
-            panel.blit(sh, r.move(1, 1))
-            panel.blit(lab, r)
 
         if has_cur:
             cp = to_xy(float(cur[0]), float(cur[1]))
@@ -347,28 +340,20 @@ def _draw_photo_tile(surface, rect, f, radius):
 
 
 def _chip(surface, rect, label, val, unit="", tappable=False):
-    a = 22 if tappable else 15
+    # Uniform chips; tappable ones (ALT/SPD, toggle units) get a brighter border.
+    a = 20 if tappable else 15
     _rrect(surface, rect, (*_CHIP, a), theme.s(8))
-    _rrect(surface, rect, (*_CHIP, 95 if tappable else 55), theme.s(8), width=max(1, theme.s(1)))
+    _rrect(surface, rect, (*_CHIP, 90 if tappable else 55), theme.s(8), width=max(1, theme.s(1)))
     lf = ck._sg(theme.s(7), "regular")
-    vf = ck._sg(theme.s(13), "bold")
-    uf = ck._sg(theme.s(7), "regular")
-    # label (+ unit-toggle arrows), centred near the top
+    vf = ck._sg(theme.s(14), "bold")
+    uf = ck._sg(theme.s(8), "regular")
     lab = lf.render(label, True, _MUTED)
-    arr = _unit_arrows(theme.s(7)) if tappable else None
-    gap = theme.s(3) if tappable else 0
-    grp_w = lab.get_width() + (gap + arr.get_width() if arr else 0)
-    lx = rect.centerx - grp_w // 2
-    ly = rect.top + theme.s(8)
-    surface.blit(lab, (lx, ly))
-    if arr:
-        surface.blit(arr, (lx + lab.get_width() + gap, ly + theme.s(1)))
-    # value + unit, baseline-aligned, centred
+    surface.blit(lab, lab.get_rect(midtop=(rect.centerx, rect.top + theme.s(9))))
     v = vf.render(val, True, _TXT)
     u = uf.render(unit, True, _DIM) if unit else None
     tw = v.get_width() + (theme.s(3) + u.get_width() if u else 0)
     vx = rect.centerx - tw // 2
-    vy = rect.bottom - theme.s(11) - v.get_height()
+    vy = rect.bottom - theme.s(12) - v.get_height()
     surface.blit(v, (vx, vy))
     if u:
         surface.blit(u, (vx + v.get_width() + theme.s(3),
@@ -451,7 +436,7 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
     sub_bits = [b for b in (format_aircraft_type(f.get("plane") or ""),
                             (f.get("airline") or "")) if b and b != "—"]
     if sub_bits:
-        sf = ck._sg(theme.s(8), "regular")
+        sf = ck._sg(theme.s(10), "regular")
         si = sf.render(" · ".join(sub_bits), True, _DIM)
         surface.blit(si, si.get_rect(center=(cx, theme.s(68))))
 
@@ -482,11 +467,11 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         rl = rf.render("  ·  ".join(parts), True, _MUTED)
         surface.blit(rl, rl.get_rect(center=(cx, theme.s(267))))
 
-    # --- chips (bigger, easy to read) ---
-    cw, chh, gap = theme.s(50), theme.s(38), theme.s(4)
+    # --- chips (bigger, easy to read; use the full width) ---
+    cw, chh, gap = theme.s(54), theme.s(40), theme.s(5)
     total = cw * 4 + gap * 3
     x0 = cx - total // 2
-    cy = theme.s(280)
+    cy = theme.s(277)
     hdg = f.get("heading")
     hdg_s = f"{int(hdg)}°" if (hdg is not None and int(hdg) > 0) else "—"
     sv, su = _spd_parts(f)
