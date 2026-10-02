@@ -267,6 +267,10 @@ class RoundTouchDisplay:
         self._route_enrichment: dict[str, dict] = {}
         self._route_enrich_inflight: set[str] = set()
         self._route_enrich_redraw = False
+        # Real flown trail for the tapped flight detail (FR24), keyed by flight_id.
+        self._flight_trails: dict[str, list] = {}
+        self._flight_trail_inflight: set[str] = set()
+        self._flight_trail_done: set[str] = set()
         # Live tracking map sits left of Tracked (swipe right from Track).
         self._live_map_last_fetch = 0.0
         self._live_map_last_result: dict | None = None
@@ -3447,6 +3451,10 @@ class RoundTouchDisplay:
                 merged = self._merge_vessel_photo(merged)
             else:
                 merged = self._merge_aircraft_photo(merged)
+            fid = str(merged.get("flight_id") or "").strip()
+            if fid and self._flight_trails.get(fid):
+                merged = dict(merged)
+                merged["trail"] = self._flight_trails[fid]
             out.append(merged)
         return out
 
@@ -3567,6 +3575,7 @@ class RoundTouchDisplay:
             self._maybe_fetch_vessel_photo(flight)
             return
         self._maybe_fetch_aircraft_photo(flight)
+        self._maybe_fetch_flight_trail(flight)
         if not needs_route_enrichment(flight):
             return
         callsign = lookup_callsign(flight)
@@ -3585,6 +3594,53 @@ class RoundTouchDisplay:
                     self._route_enrich_redraw = True
             finally:
                 self._route_enrich_inflight.discard(callsign)
+
+        Thread(target=_work, daemon=True).start()
+
+    def _maybe_fetch_flight_trail(self, flight: dict) -> None:
+        """Fetch the real flown trail (FR24) for the tapped flight, once per id."""
+        fid = str(flight.get("flight_id") or "").strip()
+        if not fid or fid in self._flight_trails or fid in self._flight_trail_done:
+            return
+        if fid in self._flight_trail_inflight:
+            return
+        self._flight_trail_inflight.add(fid)
+        snap = dict(flight)
+
+        def _work():
+            try:
+                from utilities.fr24_client import LiveFlight
+
+                lf = LiveFlight(
+                    flight_id=fid,
+                    latitude=float(snap.get("plane_latitude") or 0.0),
+                    longitude=float(snap.get("plane_longitude") or 0.0),
+                    altitude=int(snap.get("altitude") or 0),
+                    ground_speed=int(snap.get("ground_speed") or 0),
+                    heading=int(snap.get("heading") or 0),
+                    vertical_speed=int(snap.get("vertical_speed") or 0),
+                    callsign=str(snap.get("callsign") or ""),
+                    registration=str(snap.get("registration") or ""),
+                    origin_airport_iata=str(snap.get("origin") or ""),
+                    destination_airport_iata=str(snap.get("destination") or ""),
+                    airline_icao=str(snap.get("airline_icao") or ""),
+                    airline_iata=str(snap.get("owner_iata") or ""),
+                    aircraft_code=str(snap.get("plane") or ""),
+                    on_ground=False,
+                    eta=0,
+                    icao_hex=str(snap.get("icao_hex") or ""),
+                )
+                details = self.overhead._api.get_flight_details(lf)
+                trail = (details or {}).get("trail") or []
+                if trail:
+                    self._bound(self._flight_trails)
+                    self._flight_trails[fid] = trail
+                    self._route_enrich_redraw = True
+            except Exception as exc:
+                logger.debug("flight trail fetch failed: %s", exc)
+            finally:
+                self._flight_trail_inflight.discard(fid)
+                self._flight_trail_done.add(fid)
 
         Thread(target=_work, daemon=True).start()
 
