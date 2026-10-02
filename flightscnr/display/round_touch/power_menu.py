@@ -213,7 +213,7 @@ def _draw_power_symbol(surface, cx: int, cy: int, r: int, color, width: int) -> 
 
 
 def _row_icon(surface, token: str, cx: int, cy: int, color) -> None:
-    size = theme.s(22)
+    size = theme.s(16)  # sits inside the badge circle with padding
     if _blit_glyph(surface, token, cx, cy, size, color):
         return
     # Procedural fallback if assets are absent (tests / incomplete checkout).
@@ -307,9 +307,14 @@ def draw_menu(surface) -> None:
         _rrect(surface, row, (*brand, 30) if selected else _ROW_FILL, radius)
         _rrect(surface, row, (*brand, 230) if selected else _ROW_BORDER, radius,
                width=theme.s(2) if selected else max(1, theme.s(1)))
-        # Icon glyph only — no outer badge circle.
+        # Circular icon badge: a faint accent fill + a thin accent ring with
+        # the glyph inside (matches the mockup; bare glyphs read as unfinished).
         bcx = row.left + theme.s(16) + badge_r
         bcy = row.centery
+        badge_fill = pygame.Surface((badge_r * 2, badge_r * 2), pygame.SRCALPHA)
+        pygame.draw.circle(badge_fill, (*accent, 26), (badge_r, badge_r), badge_r)
+        surface.blit(badge_fill, (bcx - badge_r, bcy - badge_r))
+        pygame.draw.circle(surface, accent, (bcx, bcy), badge_r, max(1, theme.s(1)))
         _row_icon(surface, token, bcx, bcy, accent)
         # label (+ subtitle)
         label_x = bcx + badge_r + theme.s(14)
