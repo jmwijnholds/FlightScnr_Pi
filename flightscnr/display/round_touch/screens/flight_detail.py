@@ -205,104 +205,110 @@ def _plane_surf(color, scale=1.0):
     return s
 
 
+def _route_data(f) -> dict:
+    return {
+        "origin_lat": f.get("origin_latitude", f.get("origin_lat")),
+        "origin_lon": f.get("origin_longitude", f.get("origin_lon")),
+        "dest_lat": f.get("destination_latitude", f.get("dest_lat")),
+        "dest_lon": f.get("destination_longitude", f.get("dest_lon")),
+        "origin": f.get("origin"), "destination": f.get("destination"),
+    }
+
+
 def _draw_map_panel(surface, rect, f, radius):
-    trail = _trail_latlon(f)
+    panel = pygame.Surface(rect.size, pygame.SRCALPHA)
+    local = pygame.Rect(0, 0, rect.width, rect.height)
+    panel.fill(_SEA)
+
+    data = _route_data(f)
     cur = (f.get("plane_latitude"), f.get("plane_longitude"))
     has_cur = _valid(cur[0], cur[1])
-    o = (f.get("origin_latitude", f.get("origin_lat")),
-         f.get("origin_longitude", f.get("origin_lon")))
-    d = (f.get("destination_latitude", f.get("dest_lat")),
-         f.get("destination_longitude", f.get("dest_lon")))
-    has_o, has_d = _valid(o[0], o[1]), _valid(d[0], d[1])
+    bounds = route_map._route_bounds(data) if route_map.route_coords_available(data) else None
 
-    pts = list(trail)
-    if has_cur:
-        pts.append((float(cur[0]), float(cur[1])))
-    if has_o:
-        pts.append((float(o[0]), float(o[1])))
-    if has_d:
-        pts.append((float(d[0]), float(d[1])))
+    if bounds is not None:
+        min_lat, max_lat, min_lon, max_lon, ref_lon = bounds
+        # fit the route bounds to the panel aspect (same framing as render_route_map)
+        lat_span = max_lat - min_lat
+        lon_span = max_lon - min_lon
+        target = rect.width / max(rect.height, 1)
+        mid = (min_lat + max_lat) / 2.0
+        cosm = max(math.cos(math.radians(mid)), 0.2)
+        if (lon_span * cosm) / max(lat_span, 1e-6) < target:
+            extra = (target * lat_span / cosm - lon_span) / 2
+            min_lon -= extra
+            max_lon += extra
+        else:
+            extra = (lon_span * cosm / target - lat_span) / 2
+            min_lat = max(-85.0, min_lat - extra)
+            max_lat = min(85.0, max_lat + extra)
 
-    panel = pygame.Surface(rect.size, pygame.SRCALPHA)
-    panel.fill(_SEA)
-    local = pygame.Rect(0, 0, rect.width, rect.height)
+        inset = theme.s(4)
+        map_w = max(1, rect.width - inset * 2)
+        map_h = max(1, rect.height - inset * 2)
+        try:
+            basemap = route_map._request_basemap(min_lat, max_lat, min_lon, max_lon, map_w, map_h)
+        except Exception:
+            basemap = None
+        if basemap is not None:
+            panel.blit(basemap, (inset, inset))
+            dim = pygame.Surface((map_w, map_h), pygame.SRCALPHA)
+            dim.fill((2, 8, 20, 95))
+            panel.blit(dim, (inset, inset))
 
-    if len(pts) >= 2 and (max(p[0] for p in pts) - min(p[0] for p in pts)
-                          + max(p[1] for p in pts) - min(p[1] for p in pts)) > 1e-4:
-        proj = _make_proj(pts, local)
+        def to_xy(lat, lon):
+            return route_map._mercator_to_panel(
+                lat, route_map._unwrap_lon(lon, ref_lon),
+                min_lat=min_lat, max_lat=max_lat, min_lon=min_lon, max_lon=max_lon,
+                left=inset, top=inset, width=map_w, height=map_h)
 
-        # graticule at whole/half degrees inside the bounds
-        minlat = min(p[0] for p in pts); maxlat = max(p[0] for p in pts)
-        minlon = min(p[1] for p in pts); maxlon = max(p[1] for p in pts)
-        step = 0.5 if (maxlon - minlon) < 4 else 2.0
-        gl = math.floor(minlon / step) * step
-        while gl <= maxlon:
-            a = proj(minlat, gl); b = proj(maxlat, gl)
-            pygame.draw.line(panel, (*_GRID, 12), a, b, 1); gl += step
-        ga = math.floor(minlat / step) * step
-        while ga <= maxlat:
-            a = proj(ga, minlon); b = proj(ga, maxlon)
-            pygame.draw.line(panel, (*_GRID, 12), a, b, 1); ga += step
-
-        # remaining leg: great-circle current -> destination (dashed)
-        if has_cur and has_d:
-            rem = route_map.great_circle_points([float(cur[0]), float(cur[1])],
-                                                [float(d[0]), float(d[1])], steps=36)
-            rp = [proj(p[0], p[1]) for p in rem]
-            for i in range(0, len(rp) - 1, 2):
-                pygame.draw.line(panel, _PLAN, rp[i], rp[i + 1], 2)
-
-        # flown path: the real FR24 trail when present, else a great-circle
-        # estimate from the origin to the current position.
+        o = (float(data["origin_lat"]), float(data["origin_lon"]))
+        d = (float(data["dest_lat"]), float(data["dest_lon"]))
+        trail = _trail_latlon(f)
         if trail:
-            flown = list(trail)
-        elif has_o and has_cur:
+            flown = trail
+        elif has_cur:
             flown = [(p[0], p[1]) for p in route_map.great_circle_points(
-                [float(o[0]), float(o[1])], [float(cur[0]), float(cur[1])], steps=30)]
+                list(o), [float(cur[0]), float(cur[1])], steps=40)]
         else:
             flown = []
-        tp = [proj(p[0], p[1]) for p in flown]
-        if has_cur and (not tp or tp[-1] != proj(float(cur[0]), float(cur[1]))):
-            tp.append(proj(float(cur[0]), float(cur[1])))
+        if has_cur:
+            rem = route_map.great_circle_points([float(cur[0]), float(cur[1])], list(d), steps=40)
+        else:
+            rem = route_map.great_circle_points(list(o), list(d), steps=48)
+
+        rp = [to_xy(p[0], p[1]) for p in rem]
+        for i in range(0, len(rp) - 1, 2):
+            pygame.draw.line(panel, _PLAN, rp[i], rp[i + 1], max(2, theme.s(1)))
+        tp = [to_xy(p[0], p[1]) for p in flown]
+        if has_cur:
+            tp.append(to_xy(float(cur[0]), float(cur[1])))
         if len(tp) >= 2:
-            pygame.draw.lines(panel, (*_ACCENT, 70), False, tp, 7)
-            pygame.draw.lines(panel, _ACCENT, False, tp, 3)
+            pygame.draw.lines(panel, (*_ACCENT, 90), False, tp, max(4, theme.s(3)))
+            pygame.draw.lines(panel, _ACCENT, False, tp, max(2, theme.s(1)))
             if trail:
-                for p in tp[:-1:max(1, len(tp) // 6)]:
-                    pygame.draw.circle(panel, (*_ACC_HI, 150), (int(p[0]), int(p[1])), 2)
+                for p in tp[:-1:max(1, len(tp) // 7)]:
+                    pygame.draw.circle(panel, (*_ACC_HI, 160), (int(p[0]), int(p[1])), 2)
 
         lf = ck._sg(theme.s(8), "bold")
-        if has_o:
-            ap = proj(float(o[0]), float(o[1]))
-            pygame.draw.circle(panel, _ACC_HI, (int(ap[0]), int(ap[1])), 5)
-            lab = lf.render(str(f.get("origin") or "").strip()[:4], True, _TXT)
-            panel.blit(lab, lab.get_rect(midtop=(ap[0], ap[1] + theme.s(5))))
-        if has_d:
-            dp = proj(float(d[0]), float(d[1]))
-            pygame.draw.circle(panel, _ACC_HI, (int(dp[0]), int(dp[1])), 6, 2)
-            lab = lf.render(str(f.get("destination") or "").strip()[:4], True, _TXT)
-            panel.blit(lab, lab.get_rect(midbottom=(dp[0], dp[1] - theme.s(5))))
+        for pt, code, below in ((o, f.get("origin"), True), (d, f.get("destination"), False)):
+            xy = to_xy(pt[0], pt[1])
+            pygame.draw.circle(panel, _ACC_HI, (int(xy[0]), int(xy[1])), theme.s(3))
+            pygame.draw.circle(panel, _BG, (int(xy[0]), int(xy[1])), max(1, theme.s(2)))
+            lab = lf.render(str(code or "").strip()[:4], True, _TXT)
+            sh = lf.render(str(code or "").strip()[:4], True, (0, 0, 0))
+            r = (lab.get_rect(midtop=(xy[0], xy[1] + theme.s(5))) if below
+                 else lab.get_rect(midbottom=(xy[0], xy[1] - theme.s(5))))
+            r.clamp_ip(local.inflate(-theme.s(4), -theme.s(4)))
+            panel.blit(sh, r.move(1, 1))
+            panel.blit(lab, r)
 
-        # aircraft at current position, rotated along course
         if has_cur:
-            cp = proj(float(cur[0]), float(cur[1]))
-            hdg = f.get("heading")
-            if hdg is None and len(tp) >= 2:
-                hdg = math.degrees(math.atan2(cp[0] - tp[-2][0], -(cp[1] - tp[-2][1])))
-            plane = _plane_surf(_TXT, 1.0)
-            plane = pygame.transform.rotate(plane, -(float(hdg or 0)))
+            cp = to_xy(float(cur[0]), float(cur[1]))
+            hdg = f.get("heading") or 0
+            plane = pygame.transform.rotate(_plane_surf(_TXT, 1.0), -(float(hdg)))
             panel.blit(plane, plane.get_rect(center=(int(cp[0]), int(cp[1]))))
-
-        # legend
-        lg = ck._sg(theme.s(6), "regular")
-        yb = rect.height - theme.s(9)
-        pygame.draw.line(panel, _ACCENT, (theme.s(9), yb), (theme.s(19), yb), 3)
-        panel.blit(lg.render("FLOWN", True, (188, 214, 236)), (theme.s(22), yb - theme.s(6)))
-        for i in range(0, theme.s(10), theme.s(4)):
-            pygame.draw.line(panel, _PLAN, (theme.s(56) + i, yb), (theme.s(58) + i, yb), 2)
-        panel.blit(lg.render("PLAN", True, (159, 180, 200)), (theme.s(70), yb - theme.s(6)))
     else:
-        msg = ck._sg(theme.s(8), "regular").render(tr("flight.no_traffic") if False else "—", True, _MUTED)
+        msg = ck._sg(theme.s(8), "regular").render("—", True, _MUTED)
         panel.blit(msg, msg.get_rect(center=local.center))
 
     panel.blit(_rounded_mask(rect.size, radius), (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
@@ -428,8 +434,7 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
     title = (f.get("name") or f.get("callsign") or tr("flight.vessel_default")) if is_vessel \
         else display_flight_id_for_flight(f)
 
-    # page dots only (which flight of how many); no breadcrumb/footer chrome
-    nav.draw_curved_page_dots(surface, idx, len(flights), active_color=_ACC_HI)
+    # no breadcrumb / footer / page-dot chrome — navigation is by swipe
 
     # --- header ---
     eye_f = ck._sg(theme.s(6), "regular")

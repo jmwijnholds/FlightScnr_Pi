@@ -6314,7 +6314,9 @@ class RoundTouchDisplay:
                     self._live_map_redraw = False
                     self._safe_draw()
 
-                if route_map.basemap_needs_redraw() and self.screen == SCREEN_TRACKED:
+                if route_map.basemap_needs_redraw() and self.screen in (
+                    SCREEN_TRACKED, SCREEN_FLIGHT
+                ):
                     self._safe_draw()
 
                 if self._vessel_photo_redraw and self.screen == SCREEN_FLIGHT:
