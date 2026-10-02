@@ -22,8 +22,9 @@ from i18n import tr
 from utilities.airline_branding import display_flight_id_for_flight
 from utilities.icao_types import format_aircraft_type
 
-FOOTER_BUTTONS = ("prev", "next", "radar")
-FOOTER_EMPTY = ("radar",)
+# No footer buttons: prev/next is swipe left/right, swipe down returns to radar.
+FOOTER_BUTTONS = ()
+FOOTER_EMPTY = ()
 
 # --- HUD palette (exact hex from the design render) --------------------------
 _BG = (3, 6, 15)          # #03060f
@@ -133,11 +134,11 @@ def clear_follow_confirm() -> None:
 
 
 def footer_labels(flights) -> tuple[str, ...]:
-    return FOOTER_EMPTY if not flights else FOOTER_BUTTONS
+    return ()
 
 
 def tap_footer_action(x: int, y: int, flights) -> str | None:
-    return nav.curved_footer_hit(x, y, list(footer_labels(flights)))
+    return None  # footer removed — navigation is by swipe
 
 
 # --- helpers ------------------------------------------------------------------
@@ -401,8 +402,6 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
 
     if not flights:
         _hero_rect = pygame.Rect(0, 0, 0, 0)
-        nav.draw_curved_breadcrumb(surface, [tr("common.radar"), tr("flight.breadcrumb.detail")])
-        nav.draw_curved_footer(surface, list(FOOTER_EMPTY))
         common.draw_center_row(surface, tr("flight.no_traffic"),
                                nav.content_top_y(has_dots=True), ck._sg(theme.s(8), "regular"), _MUTED)
         return 0
@@ -413,11 +412,7 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
     title = (f.get("name") or f.get("callsign") or tr("flight.vessel_default")) if is_vessel \
         else display_flight_id_for_flight(f)
 
-    nav.draw_curved_breadcrumb(surface, [
-        tr("common.radar"),
-        tr("flight.breadcrumb.vessel") if is_vessel else tr("flight.breadcrumb.flight"),
-        title,
-    ], active_color=_ACC_HI)
+    # page dots only (which flight of how many); no breadcrumb/footer chrome
     nav.draw_curved_page_dots(surface, idx, len(flights), active_color=_ACC_HI)
 
     # --- header ---
@@ -509,5 +504,4 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         if not following:
             _follow_btn_rect = fb.inflate(theme.s(8), theme.s(8))
 
-    nav.draw_curved_footer(surface, list(FOOTER_BUTTONS))
     return 0

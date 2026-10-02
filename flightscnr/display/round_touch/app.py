@@ -4653,8 +4653,26 @@ class RoundTouchDisplay:
         elif swipe == input_handler.SWIPE_UP and self.screen == SCREEN_CLOCK:
             self._return_to_radar()
             self._safe_draw()
+        elif self.screen == SCREEN_FLIGHT and swipe in (
+            input_handler.SWIPE_LEFT, input_handler.SWIPE_RIGHT
+        ):
+            # Flip through the flights with a swipe (replaces the prev/next buttons).
+            self._sync_selected_flight_index()
+            ordered = self._ordered_flights()
+            if ordered:
+                step = 1 if swipe == input_handler.SWIPE_LEFT else -1
+                self._select_flight_at_index(self.flight_index + step, ordered)
+                self._scroll.reset()
+                self._maybe_enrich_flight_detail()
+                self._note_activity()
+                self._safe_draw()
+        elif self.screen == SCREEN_FLIGHT and swipe == input_handler.SWIPE_DOWN:
+            # Swipe down dismisses back to the radar (replaces the radar button).
+            self._return_to_radar()
+            self._note_activity()
+            self._safe_draw()
         elif (
-            self.screen in (SCREEN_FLIGHT, SCREEN_FIRE, SCREEN_QUAKE, SCREEN_UPDATE_NOTES)
+            self.screen in (SCREEN_FIRE, SCREEN_QUAKE, SCREEN_UPDATE_NOTES)
             and swipe in (input_handler.SWIPE_UP, input_handler.SWIPE_DOWN)
         ):
             # The list already scrolled with the finger; a follow-up swipe would
