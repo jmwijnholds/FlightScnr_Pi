@@ -195,6 +195,7 @@ def _load_glyph(token: str, size: int) -> pygame.Surface | None:
 # action token -> thin-outline vector glyph (shared with the power menu rows).
 # Tokens without an entry (e.g. wifi_setup) fall back to the PNG asset.
 _GLYPH_VECTOR = {
+    "power": "power",
     "shutdown": "power",
     "reboot": "reboot",
     "restart": "restart",

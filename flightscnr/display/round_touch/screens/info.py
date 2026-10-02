@@ -170,12 +170,12 @@ ATC_QUIET_ACTIONS = (
     "quiet_dim",
     "quiet_dim_level",
 )
-# Power / service controls (portal System section equivalent).
+# System page actions. Wi-Fi setup lives here; the power actions (screen off /
+# reboot / shut down / restart) all live in the single power-menu overlay, which
+# "power" opens, so there is only one power menu to maintain.
 SYSTEM_ACTIONS = (
     "wifi_setup",
-    "restart",
-    "reboot",
-    "shutdown",
+    "power",
 )
 
 # ATC status/bluetooth/feed lookups are too heavy for every timeout-ring frame.
@@ -276,19 +276,9 @@ _SYSTEM_BTN_DANGER_BORDER = (180, 64, 48)
 # Icon accents aligned with the on-device power menu.
 _SYSTEM_ICON_COLOR = {
     "wifi_setup": (0x42, 0xAC, 0xF4),
-    "restart": (150, 162, 173),
-    "reboot": (232, 176, 74),
-    "shutdown": (233, 96, 82),
+    "power": (72, 196, 108),
 }
 _system_buttons: list[tuple[str, pygame.Rect]] = []
-_system_confirm_buttons: list[tuple[str, pygame.Rect]] = []
-
-# (title key, detail key) per action; translated at draw time.
-_SYSTEM_CONFIRM_COPY = {
-    "reboot": ("settings.confirm.reboot.title", "settings.confirm.reboot.detail"),
-    "shutdown": ("settings.confirm.shutdown.title", "settings.confirm.shutdown.detail"),
-    "restart": ("settings.confirm.restart.title", "settings.confirm.restart.detail"),
-}
 
 
 def _hostname():
@@ -394,23 +384,11 @@ def atc_action_at(x: int, y: int) -> str | None:
 
 
 def system_action_at(x: int, y: int) -> str | None:
-    """Hit-test Reboot / Shutdown / Restart buttons on the System page."""
+    """Hit-test the System page buttons: 'wifi_setup', 'power', or None."""
     for action, rect in _system_buttons:
         if rect.collidepoint(x, y):
             return action
     return None
-
-
-def system_confirm_hit(x: int, y: int) -> str | None:
-    """Hit-test confirm popup buttons: 'confirm', 'cancel', or None."""
-    for action, rect in _system_confirm_buttons:
-        if rect.collidepoint(x, y):
-            return action
-    return None
-
-
-def system_needs_confirm(action: str) -> bool:
-    return action in _SYSTEM_CONFIRM_COPY
 
 
 def atc_picker_items(kind: str) -> list[dict]:
@@ -1565,12 +1543,8 @@ def atc_picker_list_rect() -> pygame.Rect | None:
 def _system_button_label(action: str) -> str:
     if action == "wifi_setup":
         return tr("settings.system.wifi_setup")
-    if action == "restart":
-        return tr("settings.system.restart")
-    if action == "reboot":
-        return tr("settings.system.reboot")
-    if action == "shutdown":
-        return tr("settings.system.shutdown")
+    if action == "power":
+        return tr("power.title")
     return action
 
 
@@ -1641,92 +1615,6 @@ def _draw_system_page(surface, top: int, bottom: int) -> int:
         _system_buttons.append((action, rect.copy()))
         y += rect.height + gap
     return 0
-
-
-def draw_system_confirm_popup(surface, action: str) -> None:
-    """Modal confirm dialog over the System page."""
-    global _system_confirm_buttons
-    _system_confirm_buttons = []
-    copy = _SYSTEM_CONFIRM_COPY.get(action)
-    if copy is None:
-        return
-    title_text, detail_text = tr(copy[0]), tr(copy[1])
-    danger = action in ("reboot", "shutdown")
-
-    # Opaque cover — SRCALPHA dims are unreliable on the Pi framebuffer.
-    draw.fill_background_textured(surface)
-
-    title_font = draw.load_font(theme.s(16), bold=True)
-    body_font = draw.load_font(theme.s(12))
-    btn_font = draw.load_font(theme.s(13), bold=True)
-    title = title_font.render(title_text, True, theme.LABEL)
-    detail = body_font.render(detail_text, True, theme.HINT)
-
-    pad_x = theme.s(16)
-    pad_y = theme.s(14)
-    gap = theme.s(6)
-    btn_h = theme.s(36)
-    btn_gap = theme.s(10)
-    btn_w = theme.s(110)
-    row_w = btn_w * 2 + btn_gap
-    content_w = max(title.get_width(), detail.get_width(), row_w)
-    panel_w = min(content_w + pad_x * 2, int(theme.VISIBLE_RADIUS * 1.6))
-    panel_h = (
-        pad_y
-        + title.get_height()
-        + gap
-        + detail.get_height()
-        + theme.s(16)
-        + btn_h
-        + pad_y
-    )
-
-    panel_rect = pygame.Rect(0, 0, panel_w, panel_h)
-    panel_rect.center = (theme.CENTER_X, theme.CENTER_Y)
-    border = _SYSTEM_BTN_DANGER_BORDER if danger else _SYSTEM_BTN_BORDER
-    radius = theme.s(10)
-    pygame.draw.rect(surface, (8, 28, 14), panel_rect, border_radius=radius)
-    pygame.draw.rect(
-        surface, border, panel_rect, max(1, theme.s(2)), border_radius=radius
-    )
-
-    y = panel_rect.top + pad_y
-    surface.blit(title, title.get_rect(midtop=(theme.CENTER_X, y)))
-    y += title.get_height() + gap
-    surface.blit(detail, detail.get_rect(midtop=(theme.CENTER_X, y)))
-    y = panel_rect.bottom - pad_y - btn_h
-
-    cancel_rect = pygame.Rect(0, 0, btn_w, btn_h)
-    confirm_rect = pygame.Rect(0, 0, btn_w, btn_h)
-    cancel_rect.top = y
-    confirm_rect.top = y
-    cancel_rect.right = theme.CENTER_X - btn_gap // 2
-    confirm_rect.left = theme.CENTER_X + btn_gap // 2
-
-    pygame.draw.rect(surface, (20, 40, 24), cancel_rect, border_radius=theme.s(8))
-    pygame.draw.rect(
-        surface, theme.GRID, cancel_rect, max(1, theme.s(1)), border_radius=theme.s(8)
-    )
-    cancel_label = btn_font.render("Cancel", True, theme.LABEL)
-    surface.blit(cancel_label, cancel_label.get_rect(center=cancel_rect.center))
-
-    confirm_fill = _SYSTEM_BTN_DANGER_FILL if danger else _SYSTEM_BTN_FILL
-    confirm_border = _SYSTEM_BTN_DANGER_BORDER if danger else _SYSTEM_BTN_BORDER
-    pygame.draw.rect(surface, confirm_fill, confirm_rect, border_radius=theme.s(8))
-    pygame.draw.rect(
-        surface,
-        confirm_border,
-        confirm_rect,
-        max(1, theme.s(2)),
-        border_radius=theme.s(8),
-    )
-    confirm_label = btn_font.render("Confirm", True, theme.LABEL)
-    surface.blit(confirm_label, confirm_label.get_rect(center=confirm_rect.center))
-
-    _system_confirm_buttons = [
-        ("cancel", cancel_rect.copy()),
-        ("confirm", confirm_rect.copy()),
-    ]
 
 
 def draw_reboot_progress_popup(
@@ -3519,7 +3407,6 @@ def draw_info(
     display_focus: int = 0,
     *,
     pressed_row: int | None = None,
-    system_confirm: str | None = None,
     atc_picker: str | None = None,
     atc_picker_scroll: int = 0,
     atc_picker_pressed_id: str | None = None,
@@ -3827,6 +3714,4 @@ def draw_info(
     nav.draw_curved_breadcrumb(surface, _breadcrumb(page))
     nav.draw_curved_page_dots(surface, page, len(nav.SETTINGS_PAGES))
     nav.draw_curved_footer(surface, list(footer_kinds_for_page(page)))
-    if page == PAGE_SYSTEM and system_confirm:
-        draw_system_confirm_popup(surface, system_confirm)
     return max_scroll

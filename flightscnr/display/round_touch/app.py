@@ -246,7 +246,6 @@ class RoundTouchDisplay:
         self._scroll_momentum_t = 0.0
         self._scroll_samples: list[tuple[float, int]] = []
         self._display_focus = 0
-        self._system_confirm: str | None = None
         # Settings list picker kind (ATC + other multi-option rows), or None.
         self._atc_picker: str | None = None
         self._atc_picker_scroll = nav.ScrollState()
@@ -1060,7 +1059,6 @@ class RoundTouchDisplay:
                 self._settings_draw_offset(),
                 self._display_focus,
                 pressed_row=self._settings_pressed_row,
-                system_confirm=self._system_confirm,
                 atc_picker=self._atc_picker,
                 atc_picker_scroll=self._atc_picker_scroll.offset,
                 atc_picker_pressed_id=self._atc_picker_pressed_id,
@@ -1645,7 +1643,6 @@ class RoundTouchDisplay:
             self._atc_picker or "",
             int(self._atc_picker_scroll.offset) if self._atc_picker else 0,
             self._atc_picker_pressed_id or "",
-            self._system_confirm or "",
         )
 
     def _capture_timeout_rot_base(self) -> None:
@@ -1787,7 +1784,6 @@ class RoundTouchDisplay:
         self._settings_drag_scrolled = False
         self._settings_pressed_row = None
         self._overscroll = 0.0
-        self._system_confirm = None
         self._close_atc_picker()
         self._invalidate_timeout_content_cache()
         if page != self.settings_page:
@@ -4331,12 +4327,14 @@ class RoundTouchDisplay:
                 self._apply_theme_slider(group, channel, x, persist=True)
         elif self.settings_page == info.PAGE_SYSTEM and x is not None and y is not None:
             action = info.system_action_at(x, y)
-            if action is None:
-                return
-            if info.system_needs_confirm(action):
-                self._system_confirm = action
-            else:
-                self._execute_system_action(action)
+            if action == "power":
+                # Single power menu: open the same overlay as the footer glyph.
+                self._power_menu_open = True
+                self._power_confirm = None
+                self._note_activity()
+                self._safe_draw()
+            elif action == "wifi_setup":
+                self._execute_system_action("wifi_setup")
 
     def _execute_system_action(self, action: str):
         """Run reboot / shutdown / app restart / Wi-Fi setup after confirmation."""
@@ -5094,20 +5092,7 @@ class RoundTouchDisplay:
             else:
                 self._safe_draw()
         elif tap and self.screen == SCREEN_SETTINGS:
-            if self._system_confirm is not None:
-                hit = info.system_confirm_hit(tap[0], tap[1])
-                if hit == "confirm":
-                    action = self._system_confirm
-                    self._system_confirm = None
-                    self._execute_system_action(action)
-                elif hit == "cancel":
-                    self._system_confirm = None
-                # Taps outside the dialog buttons dismiss without acting.
-                else:
-                    self._system_confirm = None
-                self._note_activity()
-                self._safe_draw()
-            elif self._atc_picker is not None:
+            if self._atc_picker is not None:
                 self._handle_atc_picker_tap(tap[0], tap[1])
                 self._note_activity()
                 self._safe_draw()
