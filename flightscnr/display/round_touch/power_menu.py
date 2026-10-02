@@ -362,49 +362,37 @@ def draw_menu(surface) -> None:
     cx = theme.CENTER_X
     brand = _brand()
 
-    header_font = draw.load_font(theme.s(8), bold=True)
-    label_font = draw.load_font(theme.s(9), bold=True)
-    sub_font = draw.load_font(theme.s(6))
-    close_font = draw.load_font(theme.s(6))
+    header_font = draw.load_font(theme.s(11), bold=True)
+    label_font = draw.load_font(theme.s(12), bold=True)
+    sub_font = draw.load_font(theme.s(8))
+    close_font = draw.load_font(theme.s(8))
 
-    # --- geometry (HUD "command module": one card wrapping header + rows) ----
-    module_w = theme.s(262)
-    mod_pad_x = theme.s(11)
-    mod_pad_top = theme.s(12)
-    mod_pad_bot = theme.s(11)
-    mod_radius = theme.s(13)
-    row_radius = theme.s(8)
-    row_gap = theme.s(5)
-    header_h = theme.s(13)
-    header_gap = theme.s(9)
-    badge_r = theme.s(9)
-    icon_size = theme.s(9)
+    # --- geometry: no outer card; the rows own the screen (bigger, readable) --
+    row_w = theme.s(284)
+    row_radius = theme.s(11)
+    row_gap = theme.s(7)
+    header_h = theme.s(17)
+    header_gap = theme.s(13)
+    badge_r = theme.s(12)
+    icon_size = theme.s(12)
 
-    row_w = module_w - 2 * mod_pad_x
-    row_h = {"screen_off": theme.s(35), "reboot": theme.s(30),
-             "shutdown": theme.s(30), "restart": theme.s(30)}
+    row_h = {"screen_off": theme.s(46), "reboot": theme.s(40),
+             "shutdown": theme.s(40), "restart": theme.s(40)}
     rows_h = sum(row_h[r[0]] for r in _MENU_ROWS) + row_gap * (len(_MENU_ROWS) - 1)
-    inner_h = header_h + header_gap + rows_h
-    module_h = mod_pad_top + inner_h + mod_pad_bot
+    total_h = header_h + header_gap + rows_h
+    top = theme.CENTER_Y - total_h // 2
 
-    module = pygame.Rect(0, 0, module_w, module_h)
-    module.center = (cx, theme.CENTER_Y)
-
-    # outer command module: dark glass + a hairline brand border
-    _rrect(surface, module, (9, 16, 12, 192), mod_radius)
-    _rrect(surface, module, (*brand, 48), mod_radius, width=max(1, theme.s(1)))
-
-    # header: power glyph + letter-spaced title, centred inside the module
-    caption = _letter_spaced(header_font, tr("power.title").upper(), brand, theme.s(3))
-    glyph_cell = theme.s(10)
-    group_w = glyph_cell + theme.s(5) + caption.get_width()
+    # header: power glyph + letter-spaced title, centred (no grouping frame)
+    caption = _letter_spaced(header_font, tr("power.title").upper(), brand, theme.s(4))
+    glyph_cell = theme.s(13)
+    group_w = glyph_cell + theme.s(6) + caption.get_width()
     gx = cx - group_w // 2
-    hcy = module.top + mod_pad_top + header_h // 2
+    hcy = top + header_h // 2
     _vector_icon(surface, "power", gx + glyph_cell // 2, hcy, glyph_cell, brand)
-    surface.blit(caption, caption.get_rect(midleft=(gx + glyph_cell + theme.s(5), hcy)))
+    surface.blit(caption, caption.get_rect(midleft=(gx + glyph_cell + theme.s(6), hcy)))
 
     # rows
-    y = module.top + mod_pad_top + header_h + header_gap
+    y = top + header_h + header_gap
     row_left = cx - row_w // 2
     for token, label_key, hint_key, accent, selected in _MENU_ROWS:
         accent = _resolve(accent)
@@ -412,31 +400,31 @@ def draw_menu(surface) -> None:
         row = pygame.Rect(row_left, int(y), row_w, h)
         if selected:
             _rrect(surface, row, (*brand, 26), row_radius)
-            _rrect(surface, row, (*brand, 115), row_radius, width=max(1, theme.s(1)))
+            _rrect(surface, row, (*brand, 110), row_radius, width=max(1, theme.s(1)))
         else:
-            _rrect(surface, row, (150, 172, 158, 12), row_radius)
-            _rrect(surface, row, (255, 255, 255, 16), row_radius, width=max(1, theme.s(1)))
+            _rrect(surface, row, (150, 172, 158, 14), row_radius)
+            _rrect(surface, row, (255, 255, 255, 18), row_radius, width=max(1, theme.s(1)))
         # thin-ring badge (no fill) + outline glyph, both in the row accent
-        bcx = row.left + theme.s(9) + badge_r
+        bcx = row.left + theme.s(16) + badge_r
         bcy = row.centery
         ring = tuple(int(round(c)) for c in accent[:3])
         pygame.draw.circle(surface, ring, (bcx, bcy), badge_r, max(1, theme.s(1)))
         _vector_icon(surface, _MENU_GLYPH[token], bcx, bcy, icon_size, accent)
         # label (+ subtitle)
-        label_x = bcx + badge_r + theme.s(8)
+        label_x = bcx + badge_r + theme.s(13)
         label_col = _TEXT_SECONDARY if token == "restart" else _TEXT_PRIMARY
         label = label_font.render(tr(label_key), True, label_col)
         if hint_key:
             sub = sub_font.render(tr(hint_key), True, _TEXT_SECONDARY)
             surface.blit(label, label.get_rect(bottomleft=(label_x, bcy)))
-            surface.blit(sub, sub.get_rect(topleft=(label_x, bcy + theme.s(3))))
+            surface.blit(sub, sub.get_rect(topleft=(label_x, bcy + theme.s(4))))
         else:
             surface.blit(label, label.get_rect(midleft=(label_x, bcy)))
         _menu_buttons.append((token, row.copy()))
         y += h + row_gap
 
     close = _letter_spaced(close_font, tr("power.close_hint"), _TEXT_HINT, theme.s(1))
-    surface.blit(close, close.get_rect(midtop=(cx, module.bottom + theme.s(10))))
+    surface.blit(close, close.get_rect(midtop=(cx, int(y) + theme.s(8))))
 
 
 def menu_hit(x: int, y: int) -> str | None:
