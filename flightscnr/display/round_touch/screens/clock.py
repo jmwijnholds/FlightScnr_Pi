@@ -20,22 +20,23 @@ from display.round_touch import (
 )
 from i18n import format_date
 
-# 2030 AR-HUD reskin palette (clock face). Blue family — the HUD screens read
-# blue; the radar keeps the device green accent (theme.SWEEP) for now.
-_HUD_BG = (5, 9, 18)
+# 2030 AR-HUD reskin palette (clock face). Blue family, matched to the HUD
+# render (mockup) hex values. The radar keeps the device green accent for now.
+_HUD_BG = (3, 6, 15)            # #03060f
 _HUD_ECHO = (16, 30, 54)
 _HUD_RING = (40, 80, 138)
-_HUD_RING_HI = (120, 180, 255)
-_HUD_TIME = (230, 244, 255)
+_HUD_ACCENT = (77, 159, 255)    # #4d9fff — rings, ticks, time glow
+_HUD_RING_HI = (120, 180, 255)  # #78b4ff — chip + arc accents
+_HUD_TIME = (230, 241, 255)     # #e6f1ff
 _HUD_SUB = (150, 190, 230)
-_HUD_SEC = (111, 168, 224)
+_HUD_SEC = (111, 168, 224)      # #6fa8e0
 _HUD_DEPTH = (16, 34, 66)
-_HUD_DATE = (143, 184, 230)
-_HUD_COND = (127, 168, 216)
-_WX_ICON = (143, 196, 255)
+_HUD_DATE = (143, 184, 230)     # #8fb8e6
+_HUD_COND = (127, 168, 216)     # #7fa8d8
+_WX_ICON = (143, 196, 255)      # #8fc4ff
 _WX_AMBER = (245, 182, 66)
-_WX_SUNSET = (95, 165, 255)
-_SUN_TXT = (159, 196, 230)
+_WX_SUNSET = (77, 159, 255)     # #4d9fff
+_SUN_TXT = (159, 196, 230)      # #9fc4e6
 _HUD_ATTR = (60, 72, 96)   # very low-key: the Tomorrow.io credit stays, quietly
 
 # Font sizes as a fraction of the dial, matched to the design mockup's pixels.
@@ -111,7 +112,7 @@ def _draw_hud_frame(surface):
     size = theme.SIZE
     cx, cy, R = theme.CENTER_X, theme.CENTER_Y, theme.VISIBLE_RADIUS
     ov = pygame.Surface((size, size), pygame.SRCALPHA)
-    a = _HUD_RING_HI                 # HUD accent (blue)
+    a = _HUD_ACCENT                  # #4d9fff rings/ticks (matches the render)
     w1 = max(1, theme.s(1))
     # Faint concentric echoes.
     pygame.draw.circle(ov, (*a, 26), (cx, cy), int(R * 0.42), w1)
@@ -447,7 +448,7 @@ def _time_layout():
 def _draw_time_block(surface) -> pygame.Rect:
     time_img, accent_img, time_rect, accent_rect = _time_layout()
     time_str, _ = _time_strings()
-    glow_img = _render_tracked(_sg(_time_px(), "bold"), time_str, _HUD_RING_HI, theme.s(4))
+    glow_img = _render_tracked(_sg(_time_px(), "bold"), time_str, _HUD_ACCENT, theme.s(4))
     glow = _soft_glow(glow_img)
     surface.blit(glow, glow.get_rect(center=time_rect.center))
     surface.blit(time_img, time_rect)
