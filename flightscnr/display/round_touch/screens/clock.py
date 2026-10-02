@@ -20,23 +20,23 @@ from display.round_touch import (
 )
 from i18n import format_date
 
-# 2030 AR-HUD reskin palette (clock face). Green family (hue of theme.SWEEP)
-# so the clock matches the rest of the device instead of a separate blue.
-_HUD_BG = (5, 18, 8)
-_HUD_ECHO = (16, 54, 25)
-_HUD_RING = (40, 138, 63)
-_HUD_RING_HI = (120, 255, 151)
-_HUD_TIME = (230, 255, 236)
-_HUD_SUB = (150, 230, 169)
-_HUD_SEC = (111, 224, 137)
-_HUD_DEPTH = (16, 66, 28)
-_HUD_DATE = (143, 230, 163)
-_HUD_COND = (127, 216, 148)
-_WX_ICON = (143, 255, 169)
+# 2030 AR-HUD reskin palette (clock face). Blue family — the HUD screens read
+# blue; the radar keeps the device green accent (theme.SWEEP) for now.
+_HUD_BG = (5, 9, 18)
+_HUD_ECHO = (16, 30, 54)
+_HUD_RING = (40, 80, 138)
+_HUD_RING_HI = (120, 180, 255)
+_HUD_TIME = (230, 244, 255)
+_HUD_SUB = (150, 190, 230)
+_HUD_SEC = (111, 168, 224)
+_HUD_DEPTH = (16, 34, 66)
+_HUD_DATE = (143, 184, 230)
+_HUD_COND = (127, 168, 216)
+_WX_ICON = (143, 196, 255)
 _WX_AMBER = (245, 182, 66)
-_WX_SUNSET = (95, 255, 132)
-_SUN_TXT = (159, 230, 175)
-_HUD_ATTR = (60, 96, 72)   # very low-key: the Tomorrow.io credit stays, quietly
+_WX_SUNSET = (95, 165, 255)
+_SUN_TXT = (159, 196, 230)
+_HUD_ATTR = (60, 72, 96)   # very low-key: the Tomorrow.io credit stays, quietly
 
 # Font sizes as a fraction of the dial, matched to the design mockup's pixels.
 _TIME_FR = 0.235
@@ -111,7 +111,7 @@ def _draw_hud_frame(surface):
     size = theme.SIZE
     cx, cy, R = theme.CENTER_X, theme.CENTER_Y, theme.VISIBLE_RADIUS
     ov = pygame.Surface((size, size), pygame.SRCALPHA)
-    a = tuple(theme.SWEEP[:3])       # device accent (green)
+    a = _HUD_RING_HI                 # HUD accent (blue)
     w1 = max(1, theme.s(1))
     # Faint concentric echoes.
     pygame.draw.circle(ov, (*a, 26), (cx, cy), int(R * 0.42), w1)

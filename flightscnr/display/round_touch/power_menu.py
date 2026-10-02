@@ -75,9 +75,15 @@ _ICON_FILES = {
 _icon_cache: dict[tuple[str, int], pygame.Surface] = {}
 
 
+# HUD accent: the redesigned screens read blue; the radar keeps the device
+# green accent (theme.SWEEP) for now. Kept as its own constant so the power
+# menu does not follow theme.SWEEP (which stays green for the radar).
+_BRAND = (77, 159, 255)
+
+
 def _brand() -> tuple[int, int, int]:
-    """The device accent (theme.SWEEP), so the menu matches the other screens."""
-    return tuple(theme.SWEEP[:3])
+    """The HUD accent (blue) shared with the clock/forecast redesign."""
+    return _BRAND
 
 
 def _resolve(accent):
@@ -343,7 +349,7 @@ def draw_icon(surface, cx: int, cy: int) -> None:
     """
     global _icon_rect
     size = theme.s(22)
-    color = tuple(int(round(c * 0.62)) for c in theme.SWEEP[:3])
+    color = tuple(int(round(c * 0.62)) for c in _brand())
     _vector_icon(surface, "power", cx, cy, size, color)
     hit = size + theme.s(16)
     _icon_rect = pygame.Rect(0, 0, hit, hit)

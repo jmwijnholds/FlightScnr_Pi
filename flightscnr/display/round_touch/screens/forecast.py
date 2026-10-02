@@ -44,7 +44,7 @@ def _draw_frame(surface, ck) -> None:
     forecast mockup (simpler than the clock's dial)."""
     cx, cy, R = theme.CENTER_X, theme.CENTER_Y, theme.VISIBLE_RADIUS
     ov = pygame.Surface((theme.SIZE, theme.SIZE), pygame.SRCALPHA)
-    a = tuple(theme.SWEEP[:3])
+    a = ck._HUD_RING_HI              # HUD accent (blue)
     r_out = R - theme.s(2)
     pygame.draw.circle(ov, (*a, 26), (cx, cy), r_out, theme.s(4))
     pygame.draw.circle(ov, (*a, 56), (cx, cy), r_out, max(1, theme.s(1)))
@@ -71,7 +71,7 @@ def _draw_day_cards(surface, ck, days, unit) -> None:
     hi_font = ck._sg(int(S * 0.024), "medium")
     lo_font = ck._sg(int(S * 0.019), "regular")
     icon_size = int(S * 0.044)
-    hi_lo = tuple(theme.SWEEP[:3])
+    hi_lo = ck._HUD_RING_HI          # HUD accent (blue)
 
     for i, day in enumerate(days):
         x = margin + i * (card_w + gap)
@@ -88,7 +88,7 @@ def _draw_day_cards(surface, ck, days, unit) -> None:
         ccx = x + card_w // 2
         label = str(day.get("label") or tr("forecast.day_number", number=i + 1))
         limg = label_font.render(label.upper(), True,
-                                 theme.SWEEP if today else ck._HUD_SUB)
+                                 ck._HUD_RING_HI if today else ck._HUD_SUB)
         surface.blit(limg, limg.get_rect(midtop=(ccx, card_top + int(card_h * 0.12))))
 
         kind = ck._wx_icon_kind(day.get("weather_code"), False)
