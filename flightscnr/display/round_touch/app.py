@@ -197,6 +197,11 @@ class RoundTouchDisplay:
         self._last_firms_poll = 0.0
         self._last_quake_poll = 0.0
         self.flight_index = 0
+        # Flight-detail selection hold: keep showing the chosen aircraft across
+        # short ADS-B dropouts instead of jumping to whoever takes its list slot.
+        self._selected_missing_since = None
+        self._last_selected_flight = None
+        self._FD_SELECT_HOLD_S = 45.0
         # Pending "Follow this Flight" confirmation: {"callsign", "display",
         # "current"} while the replace-follow popup is up.
         self._follow_confirm = None
@@ -894,11 +899,23 @@ class RoundTouchDisplay:
             for i, flight in enumerate(ordered):
                 if self._flight_identity(flight) == selected_id:
                     self.flight_index = i
+                    self._selected_missing_since = None
                     return True
-        # Selected aircraft left coverage — keep a valid index, but clear the pin
-        # so we don't keep showing whoever now occupies the old slot forever.
+        # Selected aircraft not in this refresh. ADS-B drops out briefly, so do
+        # NOT immediately adopt whoever occupies the old slot (that is the screen
+        # "jumping" to another flight). Hold the pin for a grace window; the
+        # caller shows the last-known flight frozen until it returns.
+        now = time.time()
+        if selected_id is not None:
+            if self._selected_missing_since is None:
+                self._selected_missing_since = now
+            if (now - self._selected_missing_since) < self._FD_SELECT_HOLD_S:
+                self.flight_index = max(0, min(self.flight_index, len(ordered) - 1))
+                return False
+        # Gone for good — give up the pin (caller falls back to the nearest).
         self.flight_index = max(0, min(self.flight_index, len(ordered) - 1))
         self._selected_flight_id = self._flight_identity(ordered[self.flight_index])
+        self._selected_missing_since = None
         return False
 
     def _select_flight_at_index(self, index: int, ordered: list | None = None) -> None:
@@ -3478,7 +3495,7 @@ class RoundTouchDisplay:
         self._safe_draw()
 
     def _flights_for_detail(self):
-        self._sync_selected_flight_index()
+        found = self._sync_selected_flight_index()
         ordered = self._ordered_flights()
         out = []
         for f in ordered:
@@ -3492,6 +3509,21 @@ class RoundTouchDisplay:
                 merged = dict(merged)
                 merged["trail"] = self._flight_trails[fid]
             out.append(merged)
+        if found and out:
+            # remember the enriched selected flight for the dropout hold
+            self._last_selected_flight = out[max(0, min(self.flight_index, len(out) - 1))]
+        elif (self._selected_missing_since is not None
+              and self._last_selected_flight is not None):
+            # Short ADS-B dropout: keep showing the last-known selected flight,
+            # inserted at its slot, so the screen never jumps to another aircraft.
+            stale = self._last_selected_flight
+            sid = self._flight_identity(stale)
+            if not any(self._flight_identity(x) == sid for x in out):
+                out.insert(max(0, min(self.flight_index, len(out))), stale)
+            for i, x in enumerate(out):
+                if self._flight_identity(x) == sid:
+                    self.flight_index = i
+                    break
         return out
 
     def _merge_aircraft_photo(self, flight: dict) -> dict:
