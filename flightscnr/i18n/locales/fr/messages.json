@@ -708,7 +708,7 @@
   "tracked.status.estimated": "ESTIMATED",
   "tracked.breadcrumb_track": "Track",
   "common.cancel": "Cancel",
-  "flight.follow_this": "Follow this Flight",
+  "flight.follow_this": "Follow",
   "flight.following": "Following",
   "flight.confirm.title": "Follow {id}?",
   "flight.confirm.body": "This stops following {id}.",

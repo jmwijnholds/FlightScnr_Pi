@@ -306,7 +306,8 @@ class RoundTouchDisplay:
         self._panning_map = False
         self._pan_offset = (0, 0)
         self._pan_drag_start = None
-        self._fd_pan_last = None   # flight-detail map pan (last drag sample)
+        self._fd_pan_last = None    # flight-detail map pan (last drag sample)
+        self._fd_pan_origin = None  # where the finger went down (tap vs pan)
         self._long_press_pan = long_press_pan.LongPressPanController()
         self._pan_drag_was_active = False
         self._pan_commit_choice = False
@@ -3272,24 +3273,31 @@ class RoundTouchDisplay:
         return True
 
     def _update_flight_pan_drag(self) -> bool:
-        """One-finger drag pans the flight-detail map (swipe is free for this)."""
-        if self.screen != SCREEN_FLIGHT:
+        """One-finger drag pans the flight-detail map. is_dragging() is True the
+        moment a finger is down, so a pan only starts once it has clearly moved
+        past a threshold — otherwise taps (buttons, chips, swap) are swallowed."""
+        if self.screen != SCREEN_FLIGHT or not self.input.is_dragging():
+            committed = self._fd_pan_last is not None
             self._fd_pan_last = None
-            return False
-        if not self.input.is_dragging():
-            if self._fd_pan_last is not None:
-                self._fd_pan_last = None
+            self._fd_pan_origin = None
+            if committed:
                 flight_detail.pan_commit()   # settle: geo recentre + refetch
                 return True
             return False
         pos = self.input.drag_pos()
         if pos is None:
             return False
-        if self._fd_pan_last is None:
-            # Drag has begun — pan, not a tap: swallow the release tap/swipe.
-            self._fd_pan_last = pos
-            self.input.suppress_finish_result()
+        if self._fd_pan_origin is None:
+            self._fd_pan_origin = pos
             return False
+        if self._fd_pan_last is None:
+            moved = (abs(pos[0] - self._fd_pan_origin[0])
+                     + abs(pos[1] - self._fd_pan_origin[1]))
+            if moved < theme.s(26):
+                return False   # still within tap range — leave the tap alone
+            # a real drag: pan from the origin and swallow the release tap/swipe
+            self._fd_pan_last = self._fd_pan_origin
+            self.input.suppress_finish_result()
         dx = pos[0] - self._fd_pan_last[0]
         dy = pos[1] - self._fd_pan_last[1]
         self._fd_pan_last = pos

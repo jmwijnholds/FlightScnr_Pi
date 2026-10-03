@@ -708,7 +708,7 @@
   "tracked.status.estimated": "GESCHAT",
   "tracked.breadcrumb_track": "Volgen",
   "common.cancel": "Annuleren",
-  "flight.follow_this": "Volg deze vlucht",
+  "flight.follow_this": "Volg",
   "flight.following": "Wordt gevolgd",
   "flight.confirm.title": "{id} volgen?",
   "flight.confirm.body": "Dit stopt het volgen van {id}.",

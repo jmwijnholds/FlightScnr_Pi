@@ -295,15 +295,30 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
     data = _route_data(f)
     cur = (f.get("plane_latitude"), f.get("plane_longitude"))
     has_cur = _valid(cur[0], cur[1])
-    bounds = route_map._route_bounds(data) if route_map.route_coords_available(data) else None
+    has_route = route_map.route_coords_available(data)
+    bounds = route_map._route_bounds(data) if has_route else None
+    has_o = _valid(data["origin_lat"], data["origin_lon"])
+    has_d = _valid(data["dest_lat"], data["dest_lon"])
+    trail = _trail_latlon(f)
+
+    if bounds is None and has_cur:
+        # No filed route (helicopter / GA / drone): centre on the aircraft,
+        # widened to include any trail, so we still show a real map.
+        lats = [float(cur[0])] + [p[0] for p in trail]
+        lons = [float(cur[1])] + [p[1] for p in trail]
+        plat = max((max(lats) - min(lats)) * 0.35, 0.14)
+        plon = max((max(lons) - min(lons)) * 0.35, 0.14)
+        bounds = (min(lats) - plat, max(lats) + plat,
+                  min(lons) - plon, max(lons) + plon, float(cur[1]))
 
     if bounds is not None:
         min_lat, max_lat, min_lon, max_lon, ref_lon = bounds
-        # extra margin so origin/destination don't sit against the round bezel
-        _ml, _mo = (min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0
-        _xp = 0.12
-        min_lat = _ml - (_ml - min_lat) * (1 + _xp); max_lat = _ml + (max_lat - _ml) * (1 + _xp)
-        min_lon = _mo - (_mo - min_lon) * (1 + _xp); max_lon = _mo + (max_lon - _mo) * (1 + _xp)
+        if has_route:
+            # extra margin so origin/destination don't sit against the bezel
+            _ml, _mo = (min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0
+            _xp = 0.12
+            min_lat = _ml - (_ml - min_lat) * (1 + _xp); max_lat = _ml + (max_lat - _ml) * (1 + _xp)
+            min_lon = _mo - (_mo - min_lon) * (1 + _xp); max_lon = _mo + (max_lon - _mo) * (1 + _xp)
         # manual pan/zoom (hero map only): recentre + shrink the span
         if interactive and (_zoom != 1.0 or _center is not None):
             clat = _center[0] if _center else (min_lat + max_lat) / 2.0
@@ -312,7 +327,7 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
             hlon = (max_lon - min_lon) / 2.0 / _zoom
             min_lat, max_lat = clat - hlat, clat + hlat
             min_lon, max_lon = clon - hlon, clon + hlon
-        # fit the route bounds to the panel aspect (same framing as render_route_map)
+        # fit the bounds to the panel aspect (same framing as render_route_map)
         lat_span = max_lat - min_lat
         lon_span = max_lon - min_lon
         target = rect.width / max(rect.height, 1)
@@ -349,24 +364,21 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
                 min_lat=min_lat, max_lat=max_lat, min_lon=min_lon, max_lon=max_lon,
                 left=inset, top=inset, width=map_w, height=map_h)
 
-        o = (float(data["origin_lat"]), float(data["origin_lon"]))
-        d = (float(data["dest_lat"]), float(data["dest_lon"]))
-        trail = _trail_latlon(f)
+        o = (float(data["origin_lat"]), float(data["origin_lon"])) if has_o else None
+        d = (float(data["dest_lat"]), float(data["dest_lon"])) if has_d else None
         if trail:
             flown = trail
-        elif has_cur:
+        elif has_o and has_cur:
             flown = [(p[0], p[1]) for p in route_map.great_circle_points(
                 list(o), [float(cur[0]), float(cur[1])], steps=40)]
         else:
             flown = []
-        if has_cur:
-            rem = route_map.great_circle_points([float(cur[0]), float(cur[1])], list(d), steps=40)
-        else:
-            rem = route_map.great_circle_points(list(o), list(d), steps=48)
-
-        rp = [to_xy(p[0], p[1]) for p in rem]
-        for i in range(0, len(rp) - 1, 2):
-            pygame.draw.line(panel, _PLAN, rp[i], rp[i + 1], max(2, theme.s(1)))
+        if has_d:
+            rem = (route_map.great_circle_points([float(cur[0]), float(cur[1])], list(d), steps=40)
+                   if has_cur else route_map.great_circle_points(list(o), list(d), steps=48))
+            rp = [to_xy(p[0], p[1]) for p in rem]
+            for i in range(0, len(rp) - 1, 2):
+                pygame.draw.line(panel, _PLAN, rp[i], rp[i + 1], max(2, theme.s(1)))
         tp = [to_xy(p[0], p[1]) for p in flown]
         if has_cur:
             tp.append(to_xy(float(cur[0]), float(cur[1])))
@@ -376,20 +388,19 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
             if trail:
                 for p in tp[:-1:max(1, len(tp) // 7)]:
                     pygame.draw.circle(panel, (*_ACC_HI, 160), (int(p[0]), int(p[1])), 2)
-
-        # origin/dest markers only — the city names are already on the basemap
         for pt in (o, d):
+            if pt is None:
+                continue
             xy = to_xy(pt[0], pt[1])
             pygame.draw.circle(panel, _ACC_HI, (int(xy[0]), int(xy[1])), theme.s(3))
             pygame.draw.circle(panel, _BG, (int(xy[0]), int(xy[1])), max(1, theme.s(2)))
-
         if has_cur:
             cp = to_xy(float(cur[0]), float(cur[1]))
             hdg = f.get("heading") or 0
             plane = pygame.transform.rotate(_plane_surf(_TXT, 1.0), -(float(hdg)))
             panel.blit(plane, plane.get_rect(center=(int(cp[0]), int(cp[1]))))
     else:
-        msg = ck._sg(theme.s(8), "regular").render("—", True, _MUTED)
+        msg = ck._sg(theme.s(8), "regular").render("\u2014", True, _MUTED)
         panel.blit(msg, msg.get_rect(center=local.center))
 
     panel.blit(_rounded_mask(rect.size, radius), (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
@@ -399,7 +410,7 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
     surface.blit(panel, (rect.left + ox, rect.top + oy))
 
 
-def _draw_photo_tile(surface, rect, f, radius):
+def _draw_photo_tile(surface, rect, f, radius, contain=False):
     panel = pygame.Surface(rect.size, pygame.SRCALPHA)
     local = pygame.Rect(0, 0, rect.width, rect.height)
     photo_path = (f.get("photo_path") or "").strip()
@@ -412,6 +423,16 @@ def _draw_photo_tile(surface, rect, f, radius):
                 from display.round_touch import aircraft_photos as _pm
             img = _pm.load_photo_surface(photo_path, rect.height, max_w=rect.width * 2)
             if img is not None:
+                if contain and img.get_width() > rect.width:
+                    # Hero: fit the whole aircraft inside the circle (letterboxed)
+                    # instead of cropping its nose/tail off the edge.
+                    sc = rect.width / img.get_width()
+                    img = pygame.transform.smoothscale(
+                        img, (rect.width, max(1, int(img.get_height() * sc))))
+                    for yy in range(rect.height):   # dark band behind the letterbox
+                        t = yy / max(1, rect.height)
+                        pygame.draw.line(panel, (int(6 + t * 10), int(12 + t * 16),
+                                                 int(22 + t * 22)), (0, yy), (rect.width, yy))
                 panel.blit(img, img.get_rect(center=local.center))
                 drew = True
         except Exception:
@@ -429,11 +450,16 @@ def _draw_photo_tile(surface, rect, f, radius):
     surface.blit(panel, rect.topleft)
 
 
-def _chip(surface, rect, label, val, unit="", tappable=False):
+def _chip(surface, rect, label, val, unit="", tappable=False, over_photo=False):
     # Uniform chips; tappable ones (ALT/SPD, toggle units) get a brighter border.
+    if over_photo:
+        # Over the bright photo hero, lay a solid dark backing so the readout
+        # stays legible instead of washing out against the fuselage.
+        _rrect(surface, rect, (4, 10, 22, 190), theme.s(8))
     a = 20 if tappable else 15
     _rrect(surface, rect, (*_CHIP, a), theme.s(8))
-    _rrect(surface, rect, (*_CHIP, 90 if tappable else 55), theme.s(8), width=max(1, theme.s(1)))
+    _rrect(surface, rect, (*_CHIP, 120 if over_photo else (90 if tappable else 55)),
+           theme.s(8), width=max(1, theme.s(1)))
     lf = ck._sg(theme.s(7), "regular")
     vf = ck._sg(theme.s(14), "bold")
     uf = ck._sg(theme.s(8), "regular")
@@ -551,7 +577,7 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         _draw_map_panel(surface, full, f, S // 2, interactive=True)
         _draw_photo_tile(surface, photo_inset, f, theme.s(8))
     else:
-        _draw_photo_tile(surface, full, f, S // 2)
+        _draw_photo_tile(surface, full, f, S // 2, contain=True)
         _draw_map_panel(surface, photo_inset, f, theme.s(8))
     _hero_rect = photo_inset.copy()
 
@@ -570,8 +596,18 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
     sub_bits = [b for b in (format_aircraft_type(f.get("plane") or ""),
                             (f.get("airline") or "")) if b and b != "\u2014"]
     if sub_bits:
-        sf = ck._sg(theme.s(10), "regular")
-        si = sf.render(" \u00b7 ".join(sub_bits), True, _DIM)
+        sub = " \u00b7 ".join(sub_bits)
+        max_w = theme.s(292)
+        px = 10
+        sf = ck._sg(theme.s(px), "regular")
+        while sf.size(sub)[0] > max_w and px > 8:   # shrink a touch before trimming
+            px -= 1
+            sf = ck._sg(theme.s(px), "regular")
+        if sf.size(sub)[0] > max_w:                 # still too wide \u2192 ellipsize
+            while sub and sf.size(sub + "\u2026")[0] > max_w:
+                sub = sub[:-1]
+            sub = sub.rstrip(" \u00b7") + "\u2026"
+        si = sf.render(sub, True, _DIM)
         surface.blit(si, si.get_rect(center=(cx, theme.s(66))))
 
     # --- bottom: chips (ALT / SPD tap to switch units) ---
@@ -584,17 +620,18 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
     sv, su = _spd_parts(f)
     dist_s = common.format_local_distance(geo.local_offset_km(lat, lon)[2]) if _valid(lat, lon) else "\u2014"
     dv = dist_s.split(" ")[0]; du = dist_s.split(" ")[1] if " " in dist_s else ""
+    op = not _hero_is_map   # chips sit over the bright photo when it is the hero
     _alt_rect = pygame.Rect(x0, cyr, cw, chh)
     _spd_rect = pygame.Rect(x0 + (cw + gap), cyr, cw, chh)
     if not is_vessel:
         av, au = _alt_parts(f)
-        _chip(surface, _alt_rect, "ALT", av, au, tappable=True)
+        _chip(surface, _alt_rect, "ALT", av, au, tappable=True, over_photo=op)
     else:
         _alt_rect = pygame.Rect(0, 0, 0, 0)
-        _chip(surface, pygame.Rect(x0, cyr, cw, chh), "TYPE", str(f.get("plane") or "\u2014")[:5], "")
-    _chip(surface, _spd_rect, "SPD", sv, su, tappable=True)
-    _chip(surface, pygame.Rect(x0 + 2 * (cw + gap), cyr, cw, chh), "HDG", hdg_s)
-    _chip(surface, pygame.Rect(x0 + 3 * (cw + gap), cyr, cw, chh), "DIST", dv, du)
+        _chip(surface, pygame.Rect(x0, cyr, cw, chh), "TYPE", str(f.get("plane") or "\u2014")[:5], "", over_photo=op)
+    _chip(surface, _spd_rect, "SPD", sv, su, tappable=True, over_photo=op)
+    _chip(surface, pygame.Rect(x0 + 2 * (cw + gap), cyr, cw, chh), "HDG", hdg_s, over_photo=op)
+    _chip(surface, pygame.Rect(x0 + 3 * (cw + gap), cyr, cw, chh), "DIST", dv, du, over_photo=op)
 
     # --- follow ---
     if not is_vessel and (f.get("callsign") or "").strip():
@@ -620,6 +657,7 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
     # --- on-screen navigation (swipe is free for panning) ---
     _back_rect = _nav_btn(surface, theme.s(58), theme.s(86), "up")
     if len(flights) > 1:
-        _prev_rect = _nav_btn(surface, cx - theme.s(104), theme.s(352), "left")
-        _next_rect = _nav_btn(surface, cx + theme.s(104), theme.s(352), "right")
+        # kept inside the round bezel: wide chevrons at s(104)/y s(352) clipped
+        _prev_rect = _nav_btn(surface, cx - theme.s(92), theme.s(344), "left")
+        _next_rect = _nav_btn(surface, cx + theme.s(92), theme.s(344), "right")
     return 0
