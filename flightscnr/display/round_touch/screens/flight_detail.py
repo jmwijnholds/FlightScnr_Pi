@@ -944,10 +944,62 @@ def _draw_reg_caption(surface, rect, reg) -> None:
     surface.blit(t, t.get_rect(center=(rect.centerx, bar.centery)))
 
 
-def _draw_hud_line(surface, cx, cy, city, eta) -> None:
+def _route_codes(f):
+    d = _route_data(f)
+    return (str(d.get("origin") or "").strip().upper(),
+            str(d.get("destination") or "").strip().upper())
+
+
+def _flight_progress(f):
+    """0..1 fraction of the great-circle route flown, or None."""
+    d = _route_data(f)
+    if not (_valid(d["origin_lat"], d["origin_lon"]) and _valid(d["dest_lat"], d["dest_lon"])):
+        return None
+    nog = _dist_remaining_km(f)
+    if nog is None:
+        return None
+    try:
+        from utilities.overhead import haversine
+        total = haversine(float(d["origin_lat"]), float(d["origin_lon"]),
+                          float(d["dest_lat"]), float(d["dest_lon"]))
+    except Exception:
+        return None
+    if total <= 1:
+        return None
+    return max(0.0, min(1.0, (total - nog) / total))
+
+
+def _draw_route_header(surface, cx, y, f) -> None:
+    oc, dc = _route_codes(f)
+    if not (oc or dc):
+        return
+    af = ck._sg(theme.s(10), "regular")
+    s = af.render(f"{oc or '?'}   →   {dc or '?'}", True, _DIM)
+    surface.blit(s, s.get_rect(center=(cx, y)))
+
+
+def _draw_progress_bar(surface, cx, cy, half_w, oc, dc, progress) -> None:
+    x0, x1 = cx - half_w, cx + half_w
+    cf = ck._sg(theme.s(7), "bold")
+    if oc:
+        o_s = cf.render(oc, True, _MUTED)
+        surface.blit(o_s, o_s.get_rect(midright=(x0 - theme.s(6), cy)))
+    if dc:
+        d_s = cf.render(dc, True, _MUTED)
+        surface.blit(d_s, d_s.get_rect(midleft=(x1 + theme.s(6), cy)))
+    pygame.draw.line(surface, (*_CHIP, 80), (x0, cy), (x1, cy), max(2, theme.s(1)))
+    px = x0 + int((x1 - x0) * progress)
+    pygame.draw.line(surface, _ACCENT, (x0, cy), (px, cy), max(2, theme.s(1)))
+    pygame.draw.circle(surface, _DIM2, (int(x0), cy), theme.s(2))
+    pygame.draw.circle(surface, _ACC_HI, (int(x1), cy), theme.s(2), 1)
+    pygame.draw.circle(surface, _TXT, (int(px), cy), theme.s(3))
+    pygame.draw.circle(surface, _BG, (int(px), cy), max(1, theme.s(1)))
+
+
+def _draw_hud_line(surface, cx, cy, city, eta, vpx=9, lpx=8) -> None:
     """Centred HUD readout: a location pin + nearest city, then ETA."""
-    vf = ck._sg(theme.s(9), "bold")
-    lf = ck._sg(theme.s(8), "regular")
+    vf = ck._sg(theme.s(vpx), "bold")
+    lf = ck._sg(theme.s(lpx), "regular")
     city_s = vf.render(city, True, _ACC_HI) if city else None
     eta_lab = lf.render("ETA", True, _MUTED) if eta else None
     eta_val = vf.render(eta, True, _TXT) if eta else None
@@ -1091,17 +1143,16 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
             sub = sub.rstrip(" \u00b7") + "\u2026"
         si = sf.render(sub, True, _DIM)
         surface.blit(si, si.get_rect(center=(cx, theme.s(66))))
-
-    # --- HUD readout line: nearest city + ETA (airports stay on the map) ---
-    op = not _hero_is_map   # readouts sit over the bright photo when it is hero
+    # route (from → to) belongs with the identity, under type/airline
     if not is_vessel:
-        _draw_hud_line(surface, cx, theme.s(258), _nearest_city_name(f), _eta_clock(f))
+        _draw_route_header(surface, cx, theme.s(80), f)
 
     # --- instrument chips: ALT / SPD / V/S / NOG (HDG = plane nose on the map) ---
+    op = not _hero_is_map   # readouts sit over the bright photo when it is hero
     cw, chh, gap = theme.s(54), theme.s(39), theme.s(5)
     total = cw * 4 + gap * 3
     x0 = cx - total // 2
-    cyr = theme.s(286)
+    cyr = theme.s(264)
     r0 = pygame.Rect(x0, cyr, cw, chh)
     r1 = pygame.Rect(x0 + (cw + gap), cyr, cw, chh)
     r2 = pygame.Rect(x0 + 2 * (cw + gap), cyr, cw, chh)
@@ -1132,10 +1183,19 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         _chip(surface, r2, "HDG", hdg_s, over_photo=op)
         _chip(surface, r3, "DIST", dv, du, over_photo=op)
 
+    # --- journey cluster under the chips: location + ETA, then a progress bar ---
+    if not is_vessel:
+        _draw_hud_line(surface, cx, theme.s(312), _nearest_city_name(f), _eta_clock(f),
+                       vpx=11, lpx=9)
+        prog = _flight_progress(f)
+        if prog is not None:
+            oc, dc = _route_codes(f)
+            _draw_progress_bar(surface, cx, theme.s(338), theme.s(104), oc, dc, prog)
+
     # --- back to radar + zoom (prev/next are up by the number) ---
     _back_rect = _nav_btn(surface, theme.s(58), theme.s(86), "up")
     if _hero_is_map:
-        _zoomin_rect = _nav_btn(surface, cx + theme.s(128), theme.s(170), "plus")
-        _zoomout_rect = _nav_btn(surface, cx + theme.s(128), theme.s(202), "minus")
+        _zoomin_rect = _nav_btn(surface, cx + theme.s(142), theme.s(170), "plus")
+        _zoomout_rect = _nav_btn(surface, cx + theme.s(142), theme.s(202), "minus")
     _draw_hud_frame(surface)
     return 0
