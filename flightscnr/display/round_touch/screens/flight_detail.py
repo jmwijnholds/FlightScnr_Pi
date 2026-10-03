@@ -76,12 +76,11 @@ def follow_button_hit(x: int, y: int) -> bool:
 
 
 def set_follow_cam(on: bool) -> None:
-    """Enable the live follow-camera (map centres on the aircraft and tracks it)."""
+    """Enable the live follow-camera (map centres on the aircraft and tracks it).
+    Does NOT reset zoom — _start_following / _stop_following / flight-change do
+    that at the real transitions, so the user's zoom is never wiped mid-follow."""
     global _follow_cam
-    on = bool(on)
-    if on != _follow_cam:
-        _follow_cam = on
-        reset_view()   # start the new mode at its default zoom/centre
+    _follow_cam = bool(on)
 
 
 def follow_confirm_hit(x: int, y: int) -> str | None:
@@ -208,8 +207,12 @@ def zoom_by_delta(delta: int) -> None:
     if _center is None and _view_bounds is not None:
         min_lat, max_lat, min_lon, max_lon = _view_bounds
         _center = ((min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0)
-    _zoom = max(1.0, min(_MAX_ZOOM, _zoom * (1.5 ** (-delta))))
-    if _zoom <= 1.0 + 1e-6:
+    # In follow-cam the view is centred on the plane, so allow zooming out well
+    # past the default follow radius (down to a wide ~200 km look) — otherwise
+    # "-" hits the overview floor at ~49 km and feels like it does nothing.
+    floor = 0.12 if _follow_cam else 1.0
+    _zoom = max(floor, min(_MAX_ZOOM, _zoom * (1.5 ** (-delta))))
+    if not _follow_cam and _zoom <= 1.0 + 1e-6:
         _center = None
         _zoom_ref = None
 
