@@ -612,10 +612,33 @@ def draw_radar(
     return bezel_applied
 
 
+def _draw_hud_frame_accents(surface):
+    """2030 HUD frame: rim arc accents, cardinal ticks, and a home marker at
+    the observer's position (centre). Colours follow the active radar theme."""
+    cx, cy = theme.CENTER_X, theme.CENTER_Y
+    r = theme.VISIBLE_RADIUS - theme.s(2)
+    accent = theme.SWEEP
+    w = max(1, theme.s(1))
+    rect = pygame.Rect(cx - r, cy - r, 2 * r, 2 * r)
+    for a0, a1 in ((math.radians(74), math.radians(106)),
+                   (math.radians(254), math.radians(286))):
+        pygame.draw.arc(surface, accent, rect, a0, a1, max(2, theme.s(1)))
+    tk = theme.s(8)
+    for (x0, y0, x1, y1) in ((cx, cy - r, cx, cy - r + tk),
+                             (cx, cy + r, cx, cy + r - tk),
+                             (cx - r, cy, cx - r + tk, cy),
+                             (cx + r, cy, cx + r - tk, cy)):
+        pygame.draw.line(surface, accent, (x0, y0), (x1, y1), w)
+    pygame.draw.circle(surface, theme.AIRCRAFT, (cx, cy), max(2, theme.s(2)))
+    pygame.draw.circle(surface, theme.AIRCRAFT, (cx, cy), theme.s(5), max(1, theme.s(1)))
+
+
 def _draw_grid(surface, *, calibrate: bool = False):
     center = (theme.CENTER_X, theme.CENTER_Y)
     line_w = max(1, theme.s(2))
     facing = settings.effective_facing_deg()
+    if not calibrate:
+        _draw_hud_frame_accents(surface)
     if settings.show_range_rings():
         # Rings sit at round distances (scale.ring_values), not exact thirds.
         ring_vals = scale.ring_values(scale.active_index())
