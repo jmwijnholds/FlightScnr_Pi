@@ -563,6 +563,13 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
         lons = [route_map._unwrap_lon(p[1], ref_lon) for p in pts]
         min_lat, max_lat = min(lats), max(lats)
         min_lon, max_lon = min(lons), max(lons)
+        if has_o and has_d:
+            # Frame on the filed route ONLY (origin + destination). A stray trail
+            # point or the moving plane must not blow up / drift the overview.
+            olat = float(data["origin_lat"]); olon = route_map._unwrap_lon(float(data["origin_lon"]), ref_lon)
+            dlat = float(data["dest_lat"]); dlon = route_map._unwrap_lon(float(data["dest_lon"]), ref_lon)
+            min_lat, max_lat = min(olat, dlat), max(olat, dlat)
+            min_lon, max_lon = min(olon, dlon), max(olon, dlon)
         single = (max_lat - min_lat) < 0.02 and (max_lon - min_lon) < 0.02
         if single:
             clat, clon = (min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0
@@ -740,17 +747,24 @@ def _chip(surface, rect, label, val, unit="", tappable=False, over_photo=False, 
     pygame.draw.line(surface, (*_CHIP, 150),
                      (rect.centerx - tk // 2, rect.top), (rect.centerx + tk // 2, rect.top),
                      max(2, theme.s(1)))
-    lf = ck._sg(theme.s(7), "regular")
-    vf = ck._sg(theme.s(14), "bold")
+    lf = ck._sg(theme.s(8), "regular")
     uf = ck._sg(theme.s(8), "regular")
     lab = lf.render(label, True, _MUTED)
-    v = vf.render(val, True, _TXT)
     u = uf.render(unit, True, _DIM) if unit else None
+    tri_w = theme.s(10) if trend else 0
+    # value: start bigger, shrink to fit the chip so long numbers never overflow
+    avail = rect.width - theme.s(7)
+    vpx = 16
+    vf = ck._sg(theme.s(vpx), "bold")
+    v = vf.render(val, True, _TXT)
+    while (tri_w + v.get_width() + (theme.s(2) + u.get_width() if u else 0)) > avail and vpx > 11:
+        vpx -= 1
+        vf = ck._sg(theme.s(vpx), "bold")
+        v = vf.render(val, True, _TXT)
     inner_gap = theme.s(3)
     stack_h = lab.get_height() + inner_gap + v.get_height()
     top = rect.centery - stack_h // 2
     surface.blit(lab, lab.get_rect(midtop=(rect.centerx, top)))
-    tri_w = theme.s(10) if trend else 0
     tw = tri_w + v.get_width() + (theme.s(2) + u.get_width() if u else 0)
     gx = rect.centerx - tw // 2
     vy = top + lab.get_height() + inner_gap
@@ -950,6 +964,19 @@ def _route_codes(f):
             str(d.get("destination") or "").strip().upper())
 
 
+def _airport_label(code) -> str:
+    """Full city name for an IATA/ICAO code (NCL -> Newcastle), else the code."""
+    code = (code or "").strip().upper()
+    if not code:
+        return ""
+    try:
+        from utilities import airports
+        name = airports.get_airport_name(code)
+    except Exception:
+        name = ""
+    return (name or code)
+
+
 def _flight_progress(f):
     """0..1 fraction of the great-circle route flown, or None."""
     d = _route_data(f)
@@ -1099,12 +1126,12 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
     # --- top: LIVE + [‹ id ›] + type/airline ---
     eye_f = ck._sg(theme.s(7), "regular")
     eye = eye_f.render("LIVE", True, _MUTED)
-    er = eye.get_rect(center=(cx, theme.s(28)))
+    er = eye.get_rect(center=(cx, theme.s(26)))
     surface.blit(eye, er)
     pygame.draw.circle(surface, _ACCENT, (er.left - theme.s(7), er.centery), theme.s(2))
-    tf = ck._sg(theme.s(17), "bold")
+    tf = ck._sg(theme.s(18), "bold")
     ti = tf.render(str(title), True, _TXT)
-    id_cy = theme.s(49)
+    id_cy = theme.s(47)
     id_rect = ti.get_rect(center=(cx, id_cy))
     # A fixed number "block" (so prev/next don't shift when follow turns on).
     # Follow = double-tap the number; while following it gets a soft glow pill.
@@ -1127,10 +1154,10 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
                             (f.get("airline") or "")) if b and b != "\u2014"]
     if sub_bits:
         sub = " \u00b7 ".join(sub_bits)
-        max_w = theme.s(292)
-        px = 10
+        max_w = theme.s(288)
+        px = 11
         sf = ck._sg(theme.s(px), "regular")
-        while sf.size(sub)[0] > max_w and px > 8:   # shrink a touch before trimming
+        while sf.size(sub)[0] > max_w and px > 9:   # shrink a touch before trimming
             px -= 1
             sf = ck._sg(theme.s(px), "regular")
         if sf.size(sub)[0] > max_w:                 # still too wide \u2192 ellipsize
@@ -1138,15 +1165,15 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
                 sub = sub[:-1]
             sub = sub.rstrip(" \u00b7") + "\u2026"
         si = sf.render(sub, True, _DIM)
-        surface.blit(si, si.get_rect(center=(cx, theme.s(66))))
+        surface.blit(si, si.get_rect(center=(cx, theme.s(71))))
     # registration under the type/airline (the route shows on the progress bar)
     if not is_vessel and reg:
-        rs = ck._sg(theme.s(8), "regular").render(reg, True, _DIM2)
-        surface.blit(rs, rs.get_rect(center=(cx, theme.s(80))))
+        rs = ck._sg(theme.s(9), "regular").render(reg, True, _DIM2)
+        surface.blit(rs, rs.get_rect(center=(cx, theme.s(86))))
 
     # --- instrument chips: ALT / SPD / V/S / NOG (HDG = plane nose on the map) ---
     op = not _hero_is_map   # readouts sit over the bright photo when it is hero
-    cw, chh, gap = theme.s(54), theme.s(39), theme.s(5)
+    cw, chh, gap = theme.s(58), theme.s(42), theme.s(4)
     total = cw * 4 + gap * 3
     x0 = cx - total // 2
     cyr = theme.s(252)
@@ -1180,14 +1207,23 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         _chip(surface, r2, "HDG", hdg_s, over_photo=op)
         _chip(surface, r3, "DIST", dv, du, over_photo=op)
 
-    # --- journey cluster under the chips: location + ETA, then a progress bar ---
+    # --- journey cluster under the chips: location + ETA, progress, route names ---
     if not is_vessel:
-        _draw_hud_line(surface, cx, theme.s(304), _nearest_city_name(f), _eta_clock(f),
+        _draw_hud_line(surface, cx, theme.s(302), _nearest_city_name(f), _eta_clock(f),
                        vpx=11, lpx=9)
         prog = _flight_progress(f)
         if prog is not None:
+            _draw_progress_bar(surface, cx, theme.s(326), theme.s(104), "", "", prog)
             oc, dc = _route_codes(f)
-            _draw_progress_bar(surface, cx, theme.s(330), theme.s(104), oc, dc, prog)
+            on = _airport_label(oc); dn = _airport_label(dc)
+            if on or dn:
+                rn = ck._sg(theme.s(9), "regular").render(
+                    f"{on or oc}  →  {dn or dc}", True, _MUTED)
+                max_w = theme.s(230)
+                if rn.get_width() > max_w:
+                    rn = ck._sg(theme.s(8), "regular").render(
+                        f"{on or oc}  →  {dn or dc}", True, _MUTED)
+                surface.blit(rn, rn.get_rect(center=(cx, theme.s(344))))
 
     # --- back to radar + zoom (prev/next are up by the number) ---
     _back_rect = _nav_btn(surface, theme.s(58), theme.s(86), "up")
