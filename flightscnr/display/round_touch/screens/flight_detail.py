@@ -1087,8 +1087,6 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         _draw_map_panel(surface, full, f, S // 2, interactive=True)
         if has_photo:
             _draw_photo_tile(surface, photo_inset, f, theme.s(8))
-            if reg:
-                _draw_reg_caption(surface, photo_inset, reg)
         _hero_rect = photo_inset.copy() if has_photo else pygame.Rect(0, 0, 0, 0)
     else:
         _draw_photo_tile(surface, full, f, S // 2, contain=True)
@@ -1101,32 +1099,30 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
     # --- top: LIVE + [‹ id ›] + type/airline ---
     eye_f = ck._sg(theme.s(7), "regular")
     eye = eye_f.render("LIVE", True, _MUTED)
-    er = eye.get_rect(center=(cx, theme.s(31)))
+    er = eye.get_rect(center=(cx, theme.s(28)))
     surface.blit(eye, er)
     pygame.draw.circle(surface, _ACCENT, (er.left - theme.s(7), er.centery), theme.s(2))
     tf = ck._sg(theme.s(17), "bold")
     ti = tf.render(str(title), True, _TXT)
-    id_cy = theme.s(48)
+    id_cy = theme.s(49)
     id_rect = ti.get_rect(center=(cx, id_cy))
-    # Follow = double-tap the flight number. While following, wrap it in a soft
-    # glow pill with a radar dot so the active state is obvious.
-    block = id_rect
+    # A fixed number "block" (so prev/next don't shift when follow turns on).
+    # Follow = double-tap the number; while following it gets a soft glow pill.
+    pill = id_rect.inflate(theme.s(30), theme.s(9))
     if following:
-        block = id_rect.inflate(theme.s(30), theme.s(11))
-        _rrect(surface, block, (*_ACCENT, 46), block.height // 2)
-        _rrect(surface, block, (*_ACC_HI, 160), block.height // 2, width=max(1, theme.s(1)))
-        dot_x = block.left + theme.s(9)
+        _rrect(surface, pill, (*_ACCENT, 46), pill.height // 2)
+        _rrect(surface, pill, (*_ACC_HI, 160), pill.height // 2, width=max(1, theme.s(1)))
+        dot_x = pill.left + theme.s(9)
         pygame.draw.circle(surface, _ACC_HI, (dot_x, id_cy), theme.s(2))
         pygame.draw.circle(surface, (*_ACC_HI, 150), (dot_x, id_cy), theme.s(5), 1)
-        ti = tf.render(str(title), True, _TXT)
         surface.blit(ti, ti.get_rect(center=(cx + theme.s(5), id_cy)))
     else:
-        surface.blit(ti, id_rect)
-    _id_rect = block.inflate(theme.s(16), theme.s(12))   # double-tap-to-follow target
+        surface.blit(ti, ti.get_rect(center=(cx, id_cy)))
+    _id_rect = pill.inflate(theme.s(12), theme.s(10))   # double-tap-to-follow target
     # prev/next flank the number — they switch between aircraft
     if len(flights) > 1:
-        _prev_rect = _nav_btn(surface, block.left - theme.s(22), id_cy, "left")
-        _next_rect = _nav_btn(surface, block.right + theme.s(22), id_cy, "right")
+        _prev_rect = _nav_btn(surface, pill.left - theme.s(30), id_cy, "left")
+        _next_rect = _nav_btn(surface, pill.right + theme.s(30), id_cy, "right")
     sub_bits = [b for b in (format_aircraft_type(f.get("plane") or ""),
                             (f.get("airline") or "")) if b and b != "\u2014"]
     if sub_bits:
@@ -1143,16 +1139,17 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
             sub = sub.rstrip(" \u00b7") + "\u2026"
         si = sf.render(sub, True, _DIM)
         surface.blit(si, si.get_rect(center=(cx, theme.s(66))))
-    # route (from → to) belongs with the identity, under type/airline
-    if not is_vessel:
-        _draw_route_header(surface, cx, theme.s(80), f)
+    # registration under the type/airline (the route shows on the progress bar)
+    if not is_vessel and reg:
+        rs = ck._sg(theme.s(8), "regular").render(reg, True, _DIM2)
+        surface.blit(rs, rs.get_rect(center=(cx, theme.s(80))))
 
     # --- instrument chips: ALT / SPD / V/S / NOG (HDG = plane nose on the map) ---
     op = not _hero_is_map   # readouts sit over the bright photo when it is hero
     cw, chh, gap = theme.s(54), theme.s(39), theme.s(5)
     total = cw * 4 + gap * 3
     x0 = cx - total // 2
-    cyr = theme.s(264)
+    cyr = theme.s(252)
     r0 = pygame.Rect(x0, cyr, cw, chh)
     r1 = pygame.Rect(x0 + (cw + gap), cyr, cw, chh)
     r2 = pygame.Rect(x0 + 2 * (cw + gap), cyr, cw, chh)
@@ -1185,17 +1182,18 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
 
     # --- journey cluster under the chips: location + ETA, then a progress bar ---
     if not is_vessel:
-        _draw_hud_line(surface, cx, theme.s(312), _nearest_city_name(f), _eta_clock(f),
+        _draw_hud_line(surface, cx, theme.s(304), _nearest_city_name(f), _eta_clock(f),
                        vpx=11, lpx=9)
         prog = _flight_progress(f)
         if prog is not None:
             oc, dc = _route_codes(f)
-            _draw_progress_bar(surface, cx, theme.s(338), theme.s(104), oc, dc, prog)
+            _draw_progress_bar(surface, cx, theme.s(330), theme.s(104), oc, dc, prog)
 
     # --- back to radar + zoom (prev/next are up by the number) ---
     _back_rect = _nav_btn(surface, theme.s(58), theme.s(86), "up")
     if _hero_is_map:
-        _zoomin_rect = _nav_btn(surface, cx + theme.s(142), theme.s(170), "plus")
-        _zoomout_rect = _nav_btn(surface, cx + theme.s(142), theme.s(202), "minus")
+        # vertically centred on the right edge, a little further out
+        _zoomin_rect = _nav_btn(surface, cx + theme.s(148), theme.s(177), "plus")
+        _zoomout_rect = _nav_btn(surface, cx + theme.s(148), theme.s(213), "minus")
     _draw_hud_frame(surface)
     return 0
