@@ -5021,8 +5021,17 @@ class RoundTouchDisplay:
                 self._maybe_enrich_flight_detail()
                 self._safe_draw()
                 return
-            if flight_detail.follow_button_hit(tap[0], tap[1]):
-                self._toggle_follow_current_flight()
+            if flight_detail.id_hit(tap[0], tap[1]):
+                # double-tap the flight number toggles following it
+                now = time.time()
+                lt, lx, ly = getattr(self, "_fd_last_id_tap", (0.0, 0, 0))
+                if (now - lt < 0.5 and abs(tap[0] - lx) < theme.s(30)
+                        and abs(tap[1] - ly) < theme.s(20)):
+                    self._toggle_follow_current_flight()
+                    self._fd_last_id_tap = (0.0, 0, 0)
+                else:
+                    self._fd_last_id_tap = (now, tap[0], tap[1])
+                    self._safe_draw()
                 return
             if flight_detail.zoom_in_hit(tap[0], tap[1]):
                 flight_detail.zoom_in()

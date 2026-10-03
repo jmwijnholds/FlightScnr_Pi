@@ -54,6 +54,7 @@ _prev_rect = pygame.Rect(0, 0, 0, 0)
 _next_rect = pygame.Rect(0, 0, 0, 0)
 _zoomin_rect = pygame.Rect(0, 0, 0, 0)
 _zoomout_rect = pygame.Rect(0, 0, 0, 0)
+_id_rect = pygame.Rect(0, 0, 0, 0)   # flight-number hit area (double-tap = follow)
 
 # Map pan/zoom: _zoom 1.0 = fit the whole route; _center = (lat, lon) of the
 # view, or None to auto-centre. _view_bounds caches the last drawn frame so a
@@ -723,8 +724,9 @@ def _draw_photo_tile(surface, rect, f, radius, contain=False):
     surface.blit(panel, rect.topleft)
 
 
-def _chip(surface, rect, label, val, unit="", tappable=False, over_photo=False):
+def _chip(surface, rect, label, val, unit="", tappable=False, over_photo=False, trend=""):
     # Uniform chips; tappable ones (ALT/SPD, toggle units) get a brighter border.
+    # `trend` ('up'/'down'/'level') draws a small climb/descend triangle (V/S).
     if over_photo:
         # Over the bright photo hero, lay a solid dark backing so the readout
         # stays legible instead of washing out against the fuselage.
@@ -733,23 +735,39 @@ def _chip(surface, rect, label, val, unit="", tappable=False, over_photo=False):
     _rrect(surface, rect, (*_CHIP, a), theme.s(8))
     _rrect(surface, rect, (*_CHIP, 120 if over_photo else (90 if tappable else 55)),
            theme.s(8), width=max(1, theme.s(1)))
+    # HUD gauge tick on the top edge
+    tk = max(theme.s(11), 2)
+    pygame.draw.line(surface, (*_CHIP, 150),
+                     (rect.centerx - tk // 2, rect.top), (rect.centerx + tk // 2, rect.top),
+                     max(2, theme.s(1)))
     lf = ck._sg(theme.s(7), "regular")
     vf = ck._sg(theme.s(14), "bold")
     uf = ck._sg(theme.s(8), "regular")
     lab = lf.render(label, True, _MUTED)
     v = vf.render(val, True, _TXT)
     u = uf.render(unit, True, _DIM) if unit else None
-    # Centre the label-over-value stack vertically as one tight group.
     inner_gap = theme.s(3)
     stack_h = lab.get_height() + inner_gap + v.get_height()
     top = rect.centery - stack_h // 2
     surface.blit(lab, lab.get_rect(midtop=(rect.centerx, top)))
-    tw = v.get_width() + (theme.s(2) + u.get_width() if u else 0)
-    vx = rect.centerx - tw // 2
+    tri_w = theme.s(10) if trend else 0
+    tw = tri_w + v.get_width() + (theme.s(2) + u.get_width() if u else 0)
+    gx = rect.centerx - tw // 2
     vy = top + lab.get_height() + inner_gap
-    surface.blit(v, (vx, vy))
+    if trend:
+        s4 = theme.s(4)
+        ty = vy + v.get_height() // 2
+        col = (120, 210, 150) if trend == "up" else ((255, 190, 110) if trend == "down" else _MUTED)
+        if trend == "up":
+            pygame.draw.polygon(surface, col, [(gx, ty + s4), (gx + 2 * s4, ty + s4), (gx + s4, ty - s4)])
+        elif trend == "down":
+            pygame.draw.polygon(surface, col, [(gx, ty - s4), (gx + 2 * s4, ty - s4), (gx + s4, ty + s4)])
+        else:
+            pygame.draw.line(surface, col, (gx, ty), (gx + 2 * s4, ty), max(2, theme.s(1)))
+        gx += tri_w
+    surface.blit(v, (gx, vy))
     if u:
-        surface.blit(u, (vx + v.get_width() + theme.s(2),
+        surface.blit(u, (gx + v.get_width() + theme.s(2),
                          vy + v.get_height() - u.get_height() - theme.s(1)))
 
 
@@ -828,12 +846,146 @@ def _nav_btn(surface, cx, cy, kind) -> pygame.Rect:
     return pygame.Rect(cx - r, cy - r, 2 * r, 2 * r).inflate(theme.s(8), theme.s(8))
 
 
+# --- journey readouts (city / ETA / distance-to-destination) -----------------
+_fd_city_cache = {"lat": None, "lon": None, "name": ""}
+
+
+def _nearest_city_name(f) -> str:
+    """Name of the nearest city to the live position (cached by position)."""
+    lat = f.get("plane_latitude"); lon = f.get("plane_longitude")
+    if not _valid(lat, lon):
+        return ""
+    try:
+        lat = float(lat); lon = float(lon)
+    except (TypeError, ValueError):
+        return ""
+    c = _fd_city_cache
+    if c["lat"] is None or abs(lat - c["lat"]) > 0.12 or abs(lon - c["lon"]) > 0.12:
+        c["lat"], c["lon"] = lat, lon
+        try:
+            from utilities.cities import get_nearest_city
+            r = get_nearest_city(lat, lon)
+            c["name"] = (r or {}).get("name") or ""
+        except Exception:
+            c["name"] = ""
+    return c["name"]
+
+
+def _dist_remaining_km(f):
+    data = _route_data(f)
+    cur = (f.get("plane_latitude"), f.get("plane_longitude"))
+    if not (_valid(cur[0], cur[1]) and _valid(data["dest_lat"], data["dest_lon"])):
+        return None
+    try:
+        from utilities.overhead import haversine
+        return haversine(float(cur[0]), float(cur[1]),
+                         float(data["dest_lat"]), float(data["dest_lon"]))
+    except Exception:
+        return None
+
+
+def _eta_clock(f) -> str:
+    """Estimated arrival clock HH:MM from remaining distance / ground speed."""
+    km = _dist_remaining_km(f)
+    gs = f.get("ground_speed")
+    if km is None or not gs:
+        return ""
+    try:
+        gs = float(gs)
+    except (TypeError, ValueError):
+        return ""
+    if gs < 40:
+        return ""
+    hours = km / (gs * 1.852)
+    if hours > 24:
+        return ""
+    import datetime
+    return (datetime.datetime.now() + datetime.timedelta(hours=hours)).strftime("%H:%M")
+
+
+def _vs_parts(f):
+    """(trend, value, unit) for vertical speed. trend: 'up'/'down'/'level'/''."""
+    vs = f.get("vertical_speed")
+    if vs is None:
+        return ("", "—", "")
+    try:
+        vs = int(round(float(vs)))
+    except (TypeError, ValueError):
+        return ("", "—", "")
+    trend = "up" if vs > 100 else ("down" if vs < -100 else "level")
+    return (trend, f"{abs(vs)}", "fpm")
+
+
+def id_hit(x: int, y: int) -> bool:
+    return _id_rect.width > 0 and _id_rect.collidepoint(int(x), int(y))
+
+
+def _draw_hud_frame(surface) -> None:
+    """A thin accent ring + cardinal ticks, so the screen reads as one instrument."""
+    c = (theme.CENTER_X, theme.CENTER_Y)
+    pygame.draw.circle(surface, (*_ACCENT, 34), c, theme.SIZE // 2 - theme.s(4), max(1, theme.s(1)))
+    t = max(2, theme.s(2))
+    for (x0, y0, x1, y1) in (
+        (theme.CENTER_X, theme.s(7), theme.CENTER_X, theme.s(13)),
+        (theme.CENTER_X, theme.SIZE - theme.s(13), theme.CENTER_X, theme.SIZE - theme.s(7)),
+        (theme.s(7), theme.CENTER_Y, theme.s(13), theme.CENTER_Y),
+        (theme.SIZE - theme.s(13), theme.CENTER_Y, theme.SIZE - theme.s(7), theme.CENTER_Y),
+    ):
+        pygame.draw.line(surface, (*_ACC_HI, 110), (x0, y0), (x1, y1), t)
+
+
+def _draw_reg_caption(surface, rect, reg) -> None:
+    """Registration tag along the bottom edge of the photo thumbnail."""
+    f = ck._sg(theme.s(7), "bold")
+    t = f.render(reg, True, (230, 241, 255))
+    h = t.get_height() + theme.s(3)
+    bar = pygame.Rect(rect.left, rect.bottom - h, rect.width, h)
+    _rrect(surface, bar, (3, 8, 16, 190), 0)
+    surface.blit(t, t.get_rect(center=(rect.centerx, bar.centery)))
+
+
+def _draw_hud_line(surface, cx, cy, city, eta) -> None:
+    """Centred HUD readout: a location pin + nearest city, then ETA."""
+    vf = ck._sg(theme.s(9), "bold")
+    lf = ck._sg(theme.s(8), "regular")
+    city_s = vf.render(city, True, _ACC_HI) if city else None
+    eta_lab = lf.render("ETA", True, _MUTED) if eta else None
+    eta_val = vf.render(eta, True, _TXT) if eta else None
+    sep = lf.render("   ·   ", True, _DIM2) if (city and eta) else None
+    pin_w = theme.s(10) if city else 0
+    total = 0
+    if city:
+        total += pin_w + city_s.get_width()
+    if sep:
+        total += sep.get_width()
+    if eta:
+        total += eta_lab.get_width() + theme.s(3) + eta_val.get_width()
+    if total <= 0:
+        return
+    x = cx - total // 2
+    if city:
+        px = x + theme.s(3)
+        pygame.draw.circle(surface, _MUTED, (px, cy - theme.s(2)), theme.s(3), max(1, theme.s(1)))
+        pygame.draw.circle(surface, _MUTED, (px, cy - theme.s(2)), max(1, theme.s(1)))
+        pygame.draw.line(surface, _MUTED, (px, cy), (px, cy + theme.s(2)), max(1, theme.s(1)))
+        x += pin_w
+        surface.blit(city_s, city_s.get_rect(midleft=(x, cy)))
+        x += city_s.get_width()
+    if sep:
+        surface.blit(sep, sep.get_rect(midleft=(x, cy)))
+        x += sep.get_width()
+    if eta:
+        surface.blit(eta_lab, eta_lab.get_rect(midleft=(x, cy)))
+        x += eta_lab.get_width() + theme.s(3)
+        surface.blit(eta_val, eta_val.get_rect(midleft=(x, cy)))
+
+
 def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0) -> int:
     global _follow_btn_rect, _hero_rect, _alt_rect, _spd_rect
-    global _back_rect, _prev_rect, _next_rect, _zoomin_rect, _zoomout_rect
+    global _back_rect, _prev_rect, _next_rect, _zoomin_rect, _zoomout_rect, _id_rect
     _follow_btn_rect = None
     _back_rect = _prev_rect = _next_rect = pygame.Rect(0, 0, 0, 0)
-    _zoomin_rect = _zoomout_rect = pygame.Rect(0, 0, 0, 0)
+    _zoomin_rect = _zoomout_rect = _id_rect = pygame.Rect(0, 0, 0, 0)
     surface.fill(_BG)
     cx = theme.CENTER_X
     S = theme.SIZE
@@ -878,10 +1030,13 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         _hero_is_map = True
     full = pygame.Rect(0, 0, S, S)
     photo_inset = pygame.Rect(theme.s(250), theme.s(80), theme.s(58), theme.s(37))
+    reg = str(f.get("registration") or "").strip().upper()
     if _hero_is_map:
         _draw_map_panel(surface, full, f, S // 2, interactive=True)
         if has_photo:
             _draw_photo_tile(surface, photo_inset, f, theme.s(8))
+            if reg:
+                _draw_reg_caption(surface, photo_inset, reg)
         _hero_rect = photo_inset.copy() if has_photo else pygame.Rect(0, 0, 0, 0)
     else:
         _draw_photo_tile(surface, full, f, S // 2, contain=True)
@@ -889,9 +1044,9 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         _hero_rect = photo_inset.copy()
 
     _edge_scrim(surface, top=True, h=theme.s(88))
-    _edge_scrim(surface, top=False, h=theme.s(120))
+    _edge_scrim(surface, top=False, h=theme.s(150))
 
-    # --- top: LIVE + id + type/airline (distance only on the DIST chip) ---
+    # --- top: LIVE + [‹ id ›] + type/airline ---
     eye_f = ck._sg(theme.s(7), "regular")
     eye = eye_f.render("LIVE", True, _MUTED)
     er = eye.get_rect(center=(cx, theme.s(31)))
@@ -899,7 +1054,27 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
     pygame.draw.circle(surface, _ACCENT, (er.left - theme.s(7), er.centery), theme.s(2))
     tf = ck._sg(theme.s(17), "bold")
     ti = tf.render(str(title), True, _TXT)
-    surface.blit(ti, ti.get_rect(center=(cx, theme.s(47))))
+    id_cy = theme.s(48)
+    id_rect = ti.get_rect(center=(cx, id_cy))
+    # Follow = double-tap the flight number. While following, wrap it in a soft
+    # glow pill with a radar dot so the active state is obvious.
+    block = id_rect
+    if following:
+        block = id_rect.inflate(theme.s(30), theme.s(11))
+        _rrect(surface, block, (*_ACCENT, 46), block.height // 2)
+        _rrect(surface, block, (*_ACC_HI, 160), block.height // 2, width=max(1, theme.s(1)))
+        dot_x = block.left + theme.s(9)
+        pygame.draw.circle(surface, _ACC_HI, (dot_x, id_cy), theme.s(2))
+        pygame.draw.circle(surface, (*_ACC_HI, 150), (dot_x, id_cy), theme.s(5), 1)
+        ti = tf.render(str(title), True, _TXT)
+        surface.blit(ti, ti.get_rect(center=(cx + theme.s(5), id_cy)))
+    else:
+        surface.blit(ti, id_rect)
+    _id_rect = block.inflate(theme.s(16), theme.s(12))   # double-tap-to-follow target
+    # prev/next flank the number — they switch between aircraft
+    if len(flights) > 1:
+        _prev_rect = _nav_btn(surface, block.left - theme.s(22), id_cy, "left")
+        _next_rect = _nav_btn(surface, block.right + theme.s(22), id_cy, "right")
     sub_bits = [b for b in (format_aircraft_type(f.get("plane") or ""),
                             (f.get("airline") or "")) if b and b != "\u2014"]
     if sub_bits:
@@ -917,53 +1092,50 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         si = sf.render(sub, True, _DIM)
         surface.blit(si, si.get_rect(center=(cx, theme.s(66))))
 
-    # --- bottom: chips (ALT / SPD tap to switch units) ---
+    # --- HUD readout line: nearest city + ETA (airports stay on the map) ---
+    op = not _hero_is_map   # readouts sit over the bright photo when it is hero
+    if not is_vessel:
+        _draw_hud_line(surface, cx, theme.s(258), _nearest_city_name(f), _eta_clock(f))
+
+    # --- instrument chips: ALT / SPD / V/S / NOG (HDG = plane nose on the map) ---
     cw, chh, gap = theme.s(54), theme.s(39), theme.s(5)
     total = cw * 4 + gap * 3
     x0 = cx - total // 2
-    cyr = theme.s(276)   # lifted off the ‹ Volg › controls, per the design
-    hdg = f.get("heading")
-    hdg_s = f"{int(hdg)}\u00b0" if (hdg is not None and int(hdg) > 0) else "\u2014"
-    sv, su = _spd_parts(f)
-    dist_s = common.format_local_distance(geo.local_offset_km(lat, lon)[2]) if _valid(lat, lon) else "\u2014"
-    dv = dist_s.split(" ")[0]; du = dist_s.split(" ")[1] if " " in dist_s else ""
-    op = not _hero_is_map   # chips sit over the bright photo when it is the hero
-    _alt_rect = pygame.Rect(x0, cyr, cw, chh)
-    _spd_rect = pygame.Rect(x0 + (cw + gap), cyr, cw, chh)
+    cyr = theme.s(286)
+    r0 = pygame.Rect(x0, cyr, cw, chh)
+    r1 = pygame.Rect(x0 + (cw + gap), cyr, cw, chh)
+    r2 = pygame.Rect(x0 + 2 * (cw + gap), cyr, cw, chh)
+    r3 = pygame.Rect(x0 + 3 * (cw + gap), cyr, cw, chh)
     if not is_vessel:
-        av, au = _alt_parts(f)
-        _chip(surface, _alt_rect, "ALT", av, au, tappable=True, over_photo=op)
+        av, au = _alt_parts(f); sv, su = _spd_parts(f)
+        vt, vv, vu = _vs_parts(f)
+        nog = _dist_remaining_km(f)
+        if nog is not None:
+            ns = common.format_local_distance(nog)
+            nv = ns.split(" ")[0]; nu = ns.split(" ")[1] if " " in ns else ""
+        else:
+            nv, nu = "\u2014", ""
+        _alt_rect, _spd_rect = r0, r1
+        _chip(surface, r0, "ALT", av, au, tappable=True, over_photo=op)
+        _chip(surface, r1, "SPD", sv, su, tappable=True, over_photo=op)
+        _chip(surface, r2, "V/S", vv, vu, over_photo=op, trend=vt)
+        _chip(surface, r3, "NOG", nv, nu, over_photo=op)
     else:
-        _alt_rect = pygame.Rect(0, 0, 0, 0)
-        _chip(surface, pygame.Rect(x0, cyr, cw, chh), "TYPE", str(f.get("plane") or "\u2014")[:5], "", over_photo=op)
-    _chip(surface, _spd_rect, "SPD", sv, su, tappable=True, over_photo=op)
-    _chip(surface, pygame.Rect(x0 + 2 * (cw + gap), cyr, cw, chh), "HDG", hdg_s, over_photo=op)
-    _chip(surface, pygame.Rect(x0 + 3 * (cw + gap), cyr, cw, chh), "DIST", dv, du, over_photo=op)
+        _alt_rect = _spd_rect = pygame.Rect(0, 0, 0, 0)
+        sv, su = _spd_parts(f)
+        hdg = f.get("heading")
+        hdg_s = f"{int(hdg)}\u00b0" if (hdg is not None and int(hdg) > 0) else "\u2014"
+        dist_s = common.format_local_distance(geo.local_offset_km(lat, lon)[2]) if _valid(lat, lon) else "\u2014"
+        dv = dist_s.split(" ")[0]; du = dist_s.split(" ")[1] if " " in dist_s else ""
+        _chip(surface, r0, "TYPE", str(f.get("plane") or "\u2014")[:5], "", over_photo=op)
+        _chip(surface, r1, "SPD", sv, su, over_photo=op)
+        _chip(surface, r2, "HDG", hdg_s, over_photo=op)
+        _chip(surface, r3, "DIST", dv, du, over_photo=op)
 
-    # --- follow (tap to follow; tap again to stop — live follow-cam while on) ---
-    if not is_vessel and callsign:
-        label = tr("flight.following") if following else tr("flight.follow_this")
-        ff = ck._sg(theme.s(9), "bold")
-        fl = ff.render(label, True, _TXT if following else (220, 236, 255))
-        bw = fl.get_width() + theme.s(58); bh = theme.s(28)
-        fb = pygame.Rect(0, 0, bw, bh); fb.center = (cx, theme.s(352))
-        # solid fill while following so the active state is obvious
-        _rrect(surface, fb, (*_ACCENT, 150 if following else 42), bh // 2)
-        _rrect(surface, fb, (*_ACC_HI, 210 if following else 170), bh // 2, width=max(1, theme.s(1)))
-        ic_x = fb.left + theme.s(22)
-        pygame.draw.circle(surface, _ACC_HI, (ic_x, fb.centery), theme.s(2))
-        pygame.draw.circle(surface, _ACC_HI, (ic_x, fb.centery), theme.s(5), 1)
-        surface.blit(fl, fl.get_rect(midleft=(ic_x + theme.s(12), fb.centery)))
-        _follow_btn_rect = fb.inflate(theme.s(8), theme.s(8))
-
-    # --- on-screen navigation (swipe is free for panning) ---
+    # --- back to radar + zoom (prev/next are up by the number) ---
     _back_rect = _nav_btn(surface, theme.s(58), theme.s(86), "up")
-    if len(flights) > 1:
-        # kept inside the round bezel: wide chevrons at s(104)/y s(352) clipped
-        _prev_rect = _nav_btn(surface, cx - theme.s(92), theme.s(344), "left")
-        _next_rect = _nav_btn(surface, cx + theme.s(92), theme.s(344), "right")
-    # zoom + / - pills (map hero only); double-tap still zooms on a point
     if _hero_is_map:
         _zoomin_rect = _nav_btn(surface, cx + theme.s(128), theme.s(170), "plus")
         _zoomout_rect = _nav_btn(surface, cx + theme.s(128), theme.s(202), "minus")
+    _draw_hud_frame(surface)
     return 0
