@@ -49,6 +49,17 @@ _confirm_cancel_rect = None
 _hero_rect = pygame.Rect(0, 0, 0, 0)
 _alt_rect = pygame.Rect(0, 0, 0, 0)
 _spd_rect = pygame.Rect(0, 0, 0, 0)
+_back_rect = pygame.Rect(0, 0, 0, 0)
+_prev_rect = pygame.Rect(0, 0, 0, 0)
+_next_rect = pygame.Rect(0, 0, 0, 0)
+
+# Map pan/zoom: _zoom 1.0 = fit the whole route; _center = (lat, lon) of the
+# view, or None to auto-centre. _view_bounds caches the last drawn frame so a
+# double-tap / drag can map screen pixels back to lat/lon.
+_MAX_ZOOM = 8.0
+_zoom = 1.0
+_center = None
+_view_bounds = None  # (min_lat, max_lat, min_lon, max_lon)
 
 
 # --- public hit-tests ---------------------------------------------------------
@@ -89,6 +100,57 @@ def toggle_units(which: str) -> None:
         settings.set_flight_alt_metric(not settings.flight_alt_metric())
     elif which == "spd":
         settings.set_flight_spd_metric(not settings.flight_spd_metric())
+
+
+# --- on-screen nav buttons + map pan/zoom ------------------------------------
+def back_hit(x: int, y: int) -> bool:
+    return _back_rect.width > 0 and _back_rect.collidepoint(int(x), int(y))
+
+
+def prev_hit(x: int, y: int) -> bool:
+    return _prev_rect.width > 0 and _prev_rect.collidepoint(int(x), int(y))
+
+
+def next_hit(x: int, y: int) -> bool:
+    return _next_rect.width > 0 and _next_rect.collidepoint(int(x), int(y))
+
+
+def reset_view() -> None:
+    """Back to fit-the-whole-route (called when the flight changes / screen opens)."""
+    global _zoom, _center
+    _zoom = 1.0
+    _center = None
+
+
+def zoom_at(x: int, y: int) -> None:
+    """Double-tap: zoom in centred on the tapped point; past max, reset to fit."""
+    global _zoom, _center
+    if _view_bounds is None:
+        return
+    min_lat, max_lat, min_lon, max_lon = _view_bounds
+    s = theme.SIZE
+    if _zoom >= _MAX_ZOOM - 1e-6:
+        _zoom = 1.0
+        _center = None
+        return
+    _center = (max_lat - (y / s) * (max_lat - min_lat),
+               min_lon + (x / s) * (max_lon - min_lon))
+    _zoom = min(_MAX_ZOOM, _zoom * 2.0)
+
+
+def pan_by(dx: int, dy: int) -> None:
+    """Drag: shift the view by a pixel delta (one finger)."""
+    global _center, _zoom
+    if _view_bounds is None:
+        return
+    min_lat, max_lat, min_lon, max_lon = _view_bounds
+    s = theme.SIZE
+    if _center is None:
+        _center = ((min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0)
+    _center = (_center[0] + (dy / s) * (max_lat - min_lat),
+               _center[1] - (dx / s) * (max_lon - min_lon))
+    if _zoom < 1.0:
+        _zoom = 1.0
 
 
 # --- confirm popup (replace-follow warning) — unchanged behaviour -------------
@@ -213,7 +275,8 @@ def _route_data(f) -> dict:
     }
 
 
-def _draw_map_panel(surface, rect, f, radius):
+def _draw_map_panel(surface, rect, f, radius, interactive=False):
+    global _view_bounds
     panel = pygame.Surface(rect.size, pygame.SRCALPHA)
     local = pygame.Rect(0, 0, rect.width, rect.height)
     panel.fill(_SEA)
@@ -230,6 +293,14 @@ def _draw_map_panel(surface, rect, f, radius):
         _xp = 0.12
         min_lat = _ml - (_ml - min_lat) * (1 + _xp); max_lat = _ml + (max_lat - _ml) * (1 + _xp)
         min_lon = _mo - (_mo - min_lon) * (1 + _xp); max_lon = _mo + (max_lon - _mo) * (1 + _xp)
+        # manual pan/zoom (hero map only): recentre + shrink the span
+        if interactive and (_zoom != 1.0 or _center is not None):
+            clat = _center[0] if _center else (min_lat + max_lat) / 2.0
+            clon = _center[1] if _center else (min_lon + max_lon) / 2.0
+            hlat = (max_lat - min_lat) / 2.0 / _zoom
+            hlon = (max_lon - min_lon) / 2.0 / _zoom
+            min_lat, max_lat = clat - hlat, clat + hlat
+            min_lon, max_lon = clon - hlon, clon + hlon
         # fit the route bounds to the panel aspect (same framing as render_route_map)
         lat_span = max_lat - min_lat
         lon_span = max_lon - min_lon
@@ -244,6 +315,9 @@ def _draw_map_panel(surface, rect, f, radius):
             extra = (lon_span * cosm / target - lat_span) / 2
             min_lat = max(-85.0, min_lat - extra)
             max_lat = min(85.0, max_lat + extra)
+
+        if interactive:
+            _view_bounds = (min_lat, max_lat, min_lon, max_lon)
 
         inset = theme.s(4)
         map_w = max(1, rect.width - inset * 2)
@@ -417,9 +491,29 @@ def _edge_scrim(surface, *, top=True, h=120, a_max=195):
     surface.blit(s, (0, 0 if top else theme.SIZE - h))
 
 
+def _nav_btn(surface, cx, cy, kind) -> pygame.Rect:
+    """Round glass button with a chevron (up=radar, left=prev, right=next)."""
+    r = theme.s(13)
+    s = pygame.Surface((2 * r, 2 * r), pygame.SRCALPHA)
+    pygame.draw.circle(s, (8, 16, 28, 160), (r, r), r)
+    pygame.draw.circle(s, (*_ACC_HI, 95), (r, r), r, max(1, theme.s(1)))
+    surface.blit(s, (cx - r, cy - r))
+    w = max(2, theme.s(2))
+    if kind == "up":
+        pts = [(cx - r * 0.42, cy + r * 0.18), (cx, cy - r * 0.28), (cx + r * 0.42, cy + r * 0.18)]
+    elif kind == "left":
+        pts = [(cx + r * 0.22, cy - r * 0.44), (cx - r * 0.32, cy), (cx + r * 0.22, cy + r * 0.44)]
+    else:
+        pts = [(cx - r * 0.22, cy - r * 0.44), (cx + r * 0.32, cy), (cx - r * 0.22, cy + r * 0.44)]
+    pygame.draw.lines(surface, _ACC_HI, False, [(int(a), int(b)) for a, b in pts], w)
+    return pygame.Rect(cx - r, cy - r, 2 * r, 2 * r).inflate(theme.s(8), theme.s(8))
+
+
 def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0) -> int:
     global _follow_btn_rect, _hero_rect, _alt_rect, _spd_rect
+    global _back_rect, _prev_rect, _next_rect
     _follow_btn_rect = None
+    _back_rect = _prev_rect = _next_rect = pygame.Rect(0, 0, 0, 0)
     surface.fill(_BG)
     cx = theme.CENTER_X
     S = theme.SIZE
@@ -441,7 +535,7 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
     full = pygame.Rect(0, 0, S, S)
     photo_inset = pygame.Rect(theme.s(250), theme.s(80), theme.s(58), theme.s(37))
     if _hero_is_map:
-        _draw_map_panel(surface, full, f, S // 2)
+        _draw_map_panel(surface, full, f, S // 2, interactive=True)
         _draw_photo_tile(surface, photo_inset, f, theme.s(8))
     else:
         _draw_photo_tile(surface, full, f, S // 2)
@@ -510,4 +604,9 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         if not following:
             _follow_btn_rect = fb.inflate(theme.s(8), theme.s(8))
 
+    # --- on-screen navigation (swipe is free for panning) ---
+    _back_rect = _nav_btn(surface, theme.s(58), theme.s(86), "up")
+    if len(flights) > 1:
+        _prev_rect = _nav_btn(surface, cx - theme.s(104), theme.s(352), "left")
+        _next_rect = _nav_btn(surface, cx + theme.s(104), theme.s(352), "right")
     return 0

@@ -3750,6 +3750,7 @@ class RoundTouchDisplay:
                 picked.get("mmsi"),
                 picked.get("name") or picked.get("callsign"),
             )
+        flight_detail.reset_view()
         self._open_screen(SCREEN_FLIGHT)
         self._note_activity()
         self._maybe_enrich_flight_detail()
@@ -4709,24 +4710,8 @@ class RoundTouchDisplay:
         elif swipe == input_handler.SWIPE_UP and self.screen == SCREEN_CLOCK:
             self._return_to_radar()
             self._safe_draw()
-        elif self.screen == SCREEN_FLIGHT and swipe in (
-            input_handler.SWIPE_LEFT, input_handler.SWIPE_RIGHT
-        ):
-            # Flip through the flights with a swipe (replaces the prev/next buttons).
-            self._sync_selected_flight_index()
-            ordered = self._ordered_flights()
-            if ordered:
-                step = 1 if swipe == input_handler.SWIPE_LEFT else -1
-                self._select_flight_at_index(self.flight_index + step, ordered)
-                self._scroll.reset()
-                self._maybe_enrich_flight_detail()
-                self._note_activity()
-                self._safe_draw()
-        elif self.screen == SCREEN_FLIGHT and swipe == input_handler.SWIPE_UP:
-            # Swipe up dismisses back to the radar (replaces the radar button).
-            self._return_to_radar()
-            self._note_activity()
-            self._safe_draw()
+        # SCREEN_FLIGHT navigation is via the on-screen buttons now (back /
+        # prev / next); swipe is left free for panning the map.
         elif (
             self.screen in (SCREEN_FIRE, SCREEN_QUAKE, SCREEN_UPDATE_NOTES)
             and swipe in (input_handler.SWIPE_UP, input_handler.SWIPE_DOWN)
@@ -4912,27 +4897,39 @@ class RoundTouchDisplay:
                 flight_detail.toggle_hero()
                 self._safe_draw()
                 return
-            if flight_detail.follow_button_hit(tap[0], tap[1]):
-                self._request_follow_current_flight()
+            if flight_detail.back_hit(tap[0], tap[1]):
+                self._return_to_radar()
+                self._safe_draw()
                 return
             self._sync_selected_flight_index()
             ordered = self._ordered_flights()
-            action = flight_detail.tap_footer_action(tap[0], tap[1], ordered)
-            if action == "prev" and ordered:
+            if ordered and flight_detail.prev_hit(tap[0], tap[1]):
+                flight_detail.reset_view()
                 self._select_flight_at_index(self.flight_index - 1, ordered)
                 self._scroll.reset()
                 self._maybe_enrich_flight_detail()
                 self._safe_draw()
-            elif action == "next" and ordered:
+                return
+            if ordered and flight_detail.next_hit(tap[0], tap[1]):
+                flight_detail.reset_view()
                 self._select_flight_at_index(self.flight_index + 1, ordered)
                 self._scroll.reset()
                 self._maybe_enrich_flight_detail()
                 self._safe_draw()
-            elif action == "radar":
-                self._return_to_radar()
-                self._safe_draw()
+                return
+            if flight_detail.follow_button_hit(tap[0], tap[1]):
+                self._request_follow_current_flight()
+                return
+            # tap on the map itself: a double-tap zooms in on that point
+            now = time.time()
+            lt, lx, ly = getattr(self, "_fd_last_tap", (0.0, 0, 0))
+            if (now - lt < 0.45 and abs(tap[0] - lx) < theme.s(22)
+                    and abs(tap[1] - ly) < theme.s(22)):
+                flight_detail.zoom_at(tap[0], tap[1])
+                self._fd_last_tap = (0.0, 0, 0)
             else:
-                self._safe_draw()
+                self._fd_last_tap = (now, tap[0], tap[1])
+            self._safe_draw()
         elif tap and self.screen == SCREEN_FIRE:
             # Any tap (content or footer) restarts the idle countdown.
             self._note_activity()
