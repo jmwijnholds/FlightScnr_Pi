@@ -15,7 +15,7 @@ import math
 
 import pygame
 
-from display.round_touch import aircraft, draw, geo, nav, route_map, settings, theme
+from display.round_touch import aircraft, aircraft_type_icons, draw, geo, nav, route_map, settings, theme
 from display.round_touch.screens import clock as ck
 from display.round_touch.screens import common
 from i18n import tr
@@ -52,6 +52,8 @@ _spd_rect = pygame.Rect(0, 0, 0, 0)
 _back_rect = pygame.Rect(0, 0, 0, 0)
 _prev_rect = pygame.Rect(0, 0, 0, 0)
 _next_rect = pygame.Rect(0, 0, 0, 0)
+_zoomin_rect = pygame.Rect(0, 0, 0, 0)
+_zoomout_rect = pygame.Rect(0, 0, 0, 0)
 
 # Map pan/zoom: _zoom 1.0 = fit the whole route; _center = (lat, lon) of the
 # view, or None to auto-centre. _view_bounds caches the last drawn frame so a
@@ -117,6 +119,22 @@ def prev_hit(x: int, y: int) -> bool:
 
 def next_hit(x: int, y: int) -> bool:
     return _next_rect.width > 0 and _next_rect.collidepoint(int(x), int(y))
+
+
+def zoom_in_hit(x: int, y: int) -> bool:
+    return _zoomin_rect.width > 0 and _zoomin_rect.collidepoint(int(x), int(y))
+
+
+def zoom_out_hit(x: int, y: int) -> bool:
+    return _zoomout_rect.width > 0 and _zoomout_rect.collidepoint(int(x), int(y))
+
+
+def zoom_in() -> None:
+    zoom_by_delta(-1)
+
+
+def zoom_out() -> None:
+    zoom_by_delta(1)
 
 
 def reset_view() -> None:
@@ -465,7 +483,7 @@ def _render_basemap(panel, inset, map_w, map_h, base_view, view, interactive):
     full-route framing (stable); view = what is shown now (zoom/pan applied)."""
     global _ov_raster, _hi_raster
     # Overview raster: keyed to the stable route framing so zoom/pan don't refetch.
-    _ov_raster = _request_raster(base_view, map_w, map_h, ovs=1.5, maxz=12, q=0.06, prev=_ov_raster)
+    _ov_raster = _request_raster(base_view, map_w, map_h, ovs=1.5, maxz=13, q=0.06, prev=_ov_raster)
     drew = False
     if interactive and view != base_view:
         # Zoomed in: a small-area raster at deep zoom is sharp AND cheap (few tiles).
@@ -612,9 +630,20 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
                 _place_label(panel, xy, lbl[:14], inset, map_w, map_h)
         if has_cur:
             cp = to_xy(float(cur[0]), float(cur[1]))
-            hdg = f.get("heading") or 0
-            plane = pygame.transform.rotate(_plane_surf(_TXT, 1.0), -(float(hdg)))
-            panel.blit(plane, plane.get_rect(center=(int(cp[0]), int(cp[1]))))
+            hdg = float(f.get("heading") or 0)
+            # Use the radar's categorized icon so a balloon/heli/drone shows its
+            # real symbol, not a generic plane. Fall back to the silhouette only
+            # if the icon assets are unavailable.
+            drew_icon = False
+            if f.get("kind") != "vessel":
+                try:
+                    drew_icon = aircraft_type_icons.draw_icon(
+                        panel, f, (int(cp[0]), int(cp[1])), hdg, _TXT, size=theme.s(21))
+                except Exception:
+                    drew_icon = False
+            if not drew_icon:
+                plane = pygame.transform.rotate(_plane_surf(_TXT, 1.0), -hdg)
+                panel.blit(plane, plane.get_rect(center=(int(cp[0]), int(cp[1]))))
     else:
         msg = ck._sg(theme.s(8), "regular").render("\u2014", True, _MUTED)
         panel.blit(msg, msg.get_rect(center=local.center))
@@ -754,6 +783,13 @@ def _nav_btn(surface, cx, cy, kind) -> pygame.Rect:
     pygame.draw.circle(s, (*_ACC_HI, 95), (r, r), r, max(1, theme.s(1)))
     surface.blit(s, (cx - r, cy - r))
     w = max(2, theme.s(2))
+    if kind in ("plus", "minus"):
+        pygame.draw.line(surface, _ACC_HI, (int(cx - r * 0.45), int(cy)),
+                         (int(cx + r * 0.45), int(cy)), w)
+        if kind == "plus":
+            pygame.draw.line(surface, _ACC_HI, (int(cx), int(cy - r * 0.45)),
+                             (int(cx), int(cy + r * 0.45)), w)
+        return pygame.Rect(cx - r, cy - r, 2 * r, 2 * r).inflate(theme.s(8), theme.s(8))
     if kind == "up":
         pts = [(cx - r * 0.42, cy + r * 0.18), (cx, cy - r * 0.28), (cx + r * 0.42, cy + r * 0.18)]
     elif kind == "left":
@@ -766,9 +802,10 @@ def _nav_btn(surface, cx, cy, kind) -> pygame.Rect:
 
 def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0) -> int:
     global _follow_btn_rect, _hero_rect, _alt_rect, _spd_rect
-    global _back_rect, _prev_rect, _next_rect
+    global _back_rect, _prev_rect, _next_rect, _zoomin_rect, _zoomout_rect
     _follow_btn_rect = None
     _back_rect = _prev_rect = _next_rect = pygame.Rect(0, 0, 0, 0)
+    _zoomin_rect = _zoomout_rect = pygame.Rect(0, 0, 0, 0)
     surface.fill(_BG)
     cx = theme.CENTER_X
     S = theme.SIZE
@@ -883,4 +920,8 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         # kept inside the round bezel: wide chevrons at s(104)/y s(352) clipped
         _prev_rect = _nav_btn(surface, cx - theme.s(92), theme.s(344), "left")
         _next_rect = _nav_btn(surface, cx + theme.s(92), theme.s(344), "right")
+    # zoom + / - pills (map hero only); double-tap still zooms on a point
+    if _hero_is_map:
+        _zoomin_rect = _nav_btn(surface, cx + theme.s(128), theme.s(170), "plus")
+        _zoomout_rect = _nav_btn(surface, cx + theme.s(128), theme.s(202), "minus")
     return 0

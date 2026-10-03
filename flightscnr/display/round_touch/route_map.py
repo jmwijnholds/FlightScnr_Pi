@@ -437,8 +437,12 @@ def _request_basemap(
             )
             if surf is not None:
                 with _basemap_lock:
-                    if len(_basemap_cache) > 12:
-                        _basemap_cache.clear()
+                    # Keep a decent working set in memory (LRU-ish: drop oldest)
+                    # so revisiting a flight / zoom level is instant instead of
+                    # re-fetching. Clearing the whole cache threw away the tile
+                    # we'd just want again.
+                    while len(_basemap_cache) >= 64:
+                        _basemap_cache.pop(next(iter(_basemap_cache)))
                     _basemap_cache[key] = surf
                     _basemap_dirty = True
                 # Invalidate route overlay cache so next frame composites basemap.
