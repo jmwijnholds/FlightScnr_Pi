@@ -830,16 +830,24 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         else display_flight_id_for_flight(f)
     lat = f.get("plane_latitude"); lon = f.get("plane_longitude")
 
-    # full-bleed hero map, photo as a top-right inset (tap the inset to switch)
+    # full-bleed hero map, photo as a top-right inset (tap the inset to switch).
+    # With no photo there is nothing to switch to, so hide the inset entirely
+    # and keep the map as the hero (no empty placeholder thumbnail).
+    global _hero_is_map
+    has_photo = bool((f.get("photo_path") or "").strip())
+    if not has_photo:
+        _hero_is_map = True
     full = pygame.Rect(0, 0, S, S)
     photo_inset = pygame.Rect(theme.s(250), theme.s(80), theme.s(58), theme.s(37))
     if _hero_is_map:
         _draw_map_panel(surface, full, f, S // 2, interactive=True)
-        _draw_photo_tile(surface, photo_inset, f, theme.s(8))
+        if has_photo:
+            _draw_photo_tile(surface, photo_inset, f, theme.s(8))
+        _hero_rect = photo_inset.copy() if has_photo else pygame.Rect(0, 0, 0, 0)
     else:
         _draw_photo_tile(surface, full, f, S // 2, contain=True)
         _draw_map_panel(surface, photo_inset, f, theme.s(8))
-    _hero_rect = photo_inset.copy()
+        _hero_rect = photo_inset.copy()
 
     _edge_scrim(surface, top=True, h=theme.s(88))
     _edge_scrim(surface, top=False, h=theme.s(120))
