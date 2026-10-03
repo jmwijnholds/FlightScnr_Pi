@@ -926,7 +926,8 @@ def _vs_parts(f):
         vs = int(round(float(vs)))
     except (TypeError, ValueError):
         return ("", "—", "")
-    trend = "up" if vs > 100 else ("down" if vs < -100 else "level")
+    # only flag a real climb/descent; near-level shows a plain "0" (no "-0")
+    trend = "up" if vs > 100 else ("down" if vs < -100 else "")
     return (trend, f"{abs(vs)}", "fpm")
 
 
@@ -974,7 +975,9 @@ def _airport_label(code) -> str:
         name = airports.get_airport_name(code)
     except Exception:
         name = ""
-    return (name or code)
+    # keep just the city, drop region suffixes ("Manchester, Greater Manchester")
+    name = (name or code).split(",")[0].strip()
+    return name or code
 
 
 def _flight_progress(f):
