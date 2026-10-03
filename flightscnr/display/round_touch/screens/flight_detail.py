@@ -59,6 +59,8 @@ _next_rect = pygame.Rect(0, 0, 0, 0)
 _MAX_ZOOM = 10.0
 _zoom = 1.0
 _center = None
+_zoom_ref = None     # (dlat, dlon) overview span captured when zoom began, so the
+                     # zoomed view stays put instead of re-framing as the plane moves
 _last_flight_key = None
 _view_bounds = None  # (min_lat, max_lat, min_lon, max_lon)
 _fd_pan_px = [0, 0]  # live pixel offset while dragging (committed on release)
@@ -119,10 +121,19 @@ def next_hit(x: int, y: int) -> bool:
 
 def reset_view() -> None:
     """Back to fit-the-whole-route (called when the flight changes / screen opens)."""
-    global _zoom, _center
+    global _zoom, _center, _zoom_ref
     _zoom = 1.0
     _center = None
+    _zoom_ref = None
     _fd_pan_px[0] = _fd_pan_px[1] = 0
+
+
+def _capture_zoom_ref() -> None:
+    """Freeze the overview span the first time we zoom, so the zoomed view keeps a
+    fixed scale instead of breathing as the live-position reframes the overview."""
+    global _zoom_ref
+    if _zoom_ref is None and _view_bounds is not None:
+        _zoom_ref = (_view_bounds[1] - _view_bounds[0], _view_bounds[3] - _view_bounds[2])
 
 
 def _panel_to_latlon(x, y):
@@ -143,7 +154,7 @@ def _panel_to_latlon(x, y):
 def zoom_at(x: int, y: int) -> None:
     """Double-tap: zoom in one step centred on the tapped point. At max zoom the
     next double-tap returns to the full route (single-touch fallback for pinch)."""
-    global _zoom, _center
+    global _zoom, _center, _zoom_ref
     ll = _panel_to_latlon(x, y)
     _fd_pan_px[0] = _fd_pan_px[1] = 0
     if ll is None:
@@ -151,23 +162,27 @@ def zoom_at(x: int, y: int) -> None:
     if _zoom >= _MAX_ZOOM - 1e-6:
         _zoom = 1.0
         _center = None
+        _zoom_ref = None
         return
+    _capture_zoom_ref()
     _center = ll
     _zoom = min(_MAX_ZOOM, _zoom * 2.0)
 
 
 def zoom_by_delta(delta: int) -> None:
     """Pinch step (radar convention): delta<0 zooms in, delta>0 zooms out."""
-    global _zoom, _center
+    global _zoom, _center, _zoom_ref
     if not delta:
         return
     _fd_pan_px[0] = _fd_pan_px[1] = 0
+    _capture_zoom_ref()
     if _center is None and _view_bounds is not None:
         min_lat, max_lat, min_lon, max_lon = _view_bounds
         _center = ((min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0)
     _zoom = max(1.0, min(_MAX_ZOOM, _zoom * (1.5 ** (-delta))))
     if _zoom <= 1.0 + 1e-6:
         _center = None
+        _zoom_ref = None
 
 
 def pan_by(dx: int, dy: int) -> None:
@@ -379,19 +394,26 @@ _ov_raster = None   # overview: (surf, (mnlat,mxlat,mnlon,mxlon), (w,h), key)
 _hi_raster = None   # detail (when zoomed): same shape
 
 
-def _overscan(bounds, ovs, rnd):
+def _overscan(bounds, ovs, q):
+    """Overscan the bounds, then snap to a grid sized as a FRACTION of the span
+    (q). This keeps the cache key stable as the aircraft drifts, without ever
+    collapsing a tiny area (slow/low GA) to a degenerate box like absolute
+    rounding did."""
     mn_lat, mx_lat, mn_lon, mx_lon = bounds
     clat, clon = (mn_lat + mx_lat) / 2.0, (mn_lon + mx_lon) / 2.0
-    return (round(clat - (clat - mn_lat) * ovs, rnd),
-            round(clat + (mx_lat - clat) * ovs, rnd),
-            round(clon - (clon - mn_lon) * ovs, rnd),
-            round(clon + (mx_lon - clon) * ovs, rnd))
+    lo_lat = clat - (clat - mn_lat) * ovs
+    hi_lat = clat + (mx_lat - clat) * ovs
+    lo_lon = clon - (clon - mn_lon) * ovs
+    hi_lon = clon + (mx_lon - clon) * ovs
+    step = max(max(hi_lat - lo_lat, hi_lon - lo_lon) * q, 1e-4)
+    qt = lambda v: round(v / step) * step
+    return (qt(lo_lat), qt(hi_lat), qt(lo_lon), qt(hi_lon))
 
 
-def _request_raster(bounds, map_w, map_h, ovs, maxz, rnd, prev):
+def _request_raster(bounds, map_w, map_h, ovs, maxz, q, prev):
     """Fetch (async, cached in route_map) an overscanned raster for these bounds.
     Returns a fresh raster tuple when ready, else the previous one (never blanks)."""
-    rb = _overscan(bounds, ovs, rnd)
+    rb = _overscan(bounds, ovs, q)
     key = (rb, maxz, int(map_w * ovs))
     if prev is not None and prev[3] == key:
         return prev
@@ -443,11 +465,11 @@ def _render_basemap(panel, inset, map_w, map_h, base_view, view, interactive):
     full-route framing (stable); view = what is shown now (zoom/pan applied)."""
     global _ov_raster, _hi_raster
     # Overview raster: keyed to the stable route framing so zoom/pan don't refetch.
-    _ov_raster = _request_raster(base_view, map_w, map_h, ovs=1.5, maxz=12, rnd=1, prev=_ov_raster)
+    _ov_raster = _request_raster(base_view, map_w, map_h, ovs=1.5, maxz=12, q=0.06, prev=_ov_raster)
     drew = False
     if interactive and view != base_view:
         # Zoomed in: a small-area raster at deep zoom is sharp AND cheap (few tiles).
-        _hi_raster = _request_raster(view, map_w, map_h, ovs=1.25, maxz=15, rnd=2, prev=_hi_raster)
+        _hi_raster = _request_raster(view, map_w, map_h, ovs=1.25, maxz=15, q=0.04, prev=_hi_raster)
         if _hi_raster is not None and _view_inside(view, _hi_raster[1]):
             drew = _crop_blit(panel, inset, map_w, map_h, _hi_raster, view)
     if not drew and _ov_raster is not None and _view_inside(view, _ov_raster[1]):
@@ -530,12 +552,16 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
                 min_lat, max_lat, min_lon, max_lon, rect.width / max(rect.height, 1))
         base_view = (min_lat, max_lat, min_lon, max_lon)
 
-        # Pan/zoom (hero only) relative to the base framing.
+        # Pan/zoom (hero only). Use the frozen overview span (_zoom_ref) so the
+        # zoomed view keeps a fixed scale while the live position reframes the
+        # overview underneath — otherwise the map appears to re-zoom by itself.
         if interactive and (_zoom != 1.0 or _center is not None):
+            ref_dlat = _zoom_ref[0] if _zoom_ref else (max_lat - min_lat)
+            ref_dlon = _zoom_ref[1] if _zoom_ref else (max_lon - min_lon)
             clat = _center[0] if _center else (min_lat + max_lat) / 2.0
             clon = _center[1] if _center else (min_lon + max_lon) / 2.0
-            hlat = (max_lat - min_lat) / 2.0 / _zoom
-            hlon = (max_lon - min_lon) / 2.0 / _zoom
+            hlat = ref_dlat / 2.0 / _zoom
+            hlon = ref_dlon / 2.0 / _zoom
             min_lat, max_lat = clat - hlat, clat + hlat
             min_lon, max_lon = clon - hlon, clon + hlon
 
