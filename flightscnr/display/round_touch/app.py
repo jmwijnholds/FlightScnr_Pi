@@ -3276,11 +3276,12 @@ class RoundTouchDisplay:
         """One-finger drag pans the flight-detail map. is_dragging() is True the
         moment a finger is down, so a pan only starts once it has clearly moved
         past a threshold — otherwise taps (buttons, chips, swap) are swallowed."""
-        if self.screen != SCREEN_FLIGHT or not self.input.is_dragging():
+        pinching = self.pinch.finger_count() > 1 or self.pinch.is_pinching()
+        if self.screen != SCREEN_FLIGHT or not self.input.is_dragging() or pinching:
             committed = self._fd_pan_last is not None
             self._fd_pan_last = None
             self._fd_pan_origin = None
-            if committed:
+            if committed and not pinching:
                 flight_detail.pan_commit()   # settle: geo recentre + refetch
                 return True
             return False
@@ -4913,6 +4914,11 @@ class RoundTouchDisplay:
                             lofi_tile.dismiss()
                             self._safe_draw()
         elif tap and self.screen == SCREEN_FLIGHT:
+            # A finishing pinch must not land as a (double-)tap on the map.
+            if self.pinch.should_suppress_tap():
+                tap = None
+            if tap is None:
+                return
             # Any tap (content or footer) restarts the idle countdown.
             self._note_activity()
             if self._follow_confirm is not None:
@@ -6225,6 +6231,16 @@ class RoundTouchDisplay:
                             if scale_delta and not radial_menu.is_open():
                                 # Range must not change under a frozen menu.
                                 self._apply_scale_step(scale_delta)
+                        if (
+                            self.screen == SCREEN_FLIGHT
+                            and gesture_handler.RadarGestureHandler.is_finger_event(event)
+                        ):
+                            # Pinch out = zoom in, pinch in = zoom out on the map.
+                            scale_delta = self.gestures.handle_finger_event(event)
+                            if scale_delta:
+                                flight_detail.zoom_by_delta(scale_delta)
+                                self._note_activity()
+                                self._safe_draw()
                         self._handle_navigation()
                 _lt = self._loop_stage("loop_events", _lt)
                 _body_t = _lt

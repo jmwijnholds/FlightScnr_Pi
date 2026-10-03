@@ -56,7 +56,7 @@ _next_rect = pygame.Rect(0, 0, 0, 0)
 # Map pan/zoom: _zoom 1.0 = fit the whole route; _center = (lat, lon) of the
 # view, or None to auto-centre. _view_bounds caches the last drawn frame so a
 # double-tap / drag can map screen pixels back to lat/lon.
-_MAX_ZOOM = 8.0
+_MAX_ZOOM = 10.0
 _zoom = 1.0
 _center = None
 _last_flight_key = None
@@ -125,22 +125,49 @@ def reset_view() -> None:
     _fd_pan_px[0] = _fd_pan_px[1] = 0
 
 
-def zoom_at(x: int, y: int) -> None:
-    """Double-tap toggles: fit-the-whole-route ↔ zoomed in on the tapped point.
-    So a second double-tap always zooms back out (single-touch has no pinch)."""
-    global _zoom, _center
+def _panel_to_latlon(x, y):
+    """Invert the exact mercator projection the map is drawn with (incl. inset),
+    so a tapped pixel maps to the real lat/lon under it — not a linear guess."""
     if _view_bounds is None:
-        return
+        return None
+    min_lat, max_lat, min_lon, max_lon = _view_bounds
+    inset = theme.s(4)
+    mw = max(1, theme.SIZE - 2 * inset)
+    x0, ytop = route_map._mercator_xy(max_lat, min_lon, _MERC_Z)
+    x1, ybot = route_map._mercator_xy(min_lat, max_lon, _MERC_Z)
+    fx = (x - inset) / max(mw - 1, 1)
+    fy = (y - inset) / max(mw - 1, 1)
+    return _merc_inv(x0 + fx * (x1 - x0), ytop + fy * (ybot - ytop))
+
+
+def zoom_at(x: int, y: int) -> None:
+    """Double-tap: zoom in one step centred on the tapped point. At max zoom the
+    next double-tap returns to the full route (single-touch fallback for pinch)."""
+    global _zoom, _center
+    ll = _panel_to_latlon(x, y)
     _fd_pan_px[0] = _fd_pan_px[1] = 0
-    if _zoom > 1.0 + 1e-6:          # already zoomed → back out to the full route
+    if ll is None:
+        return
+    if _zoom >= _MAX_ZOOM - 1e-6:
         _zoom = 1.0
         _center = None
         return
-    min_lat, max_lat, min_lon, max_lon = _view_bounds
-    s = theme.SIZE
-    _center = (max_lat - (y / s) * (max_lat - min_lat),
-               min_lon + (x / s) * (max_lon - min_lon))
-    _zoom = 3.0
+    _center = ll
+    _zoom = min(_MAX_ZOOM, _zoom * 2.0)
+
+
+def zoom_by_delta(delta: int) -> None:
+    """Pinch step (radar convention): delta<0 zooms in, delta>0 zooms out."""
+    global _zoom, _center
+    if not delta:
+        return
+    _fd_pan_px[0] = _fd_pan_px[1] = 0
+    if _center is None and _view_bounds is not None:
+        min_lat, max_lat, min_lon, max_lon = _view_bounds
+        _center = ((min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0)
+    _zoom = max(1.0, min(_MAX_ZOOM, _zoom * (1.5 ** (-delta))))
+    if _zoom <= 1.0 + 1e-6:
+        _center = None
 
 
 def pan_by(dx: int, dy: int) -> None:
@@ -150,20 +177,21 @@ def pan_by(dx: int, dy: int) -> None:
 
 
 def pan_commit() -> None:
-    """On release: turn the pixel offset into a geo recentre, then refetch."""
-    global _center, _zoom
+    """On release: turn the pixel offset into a geo recentre (exact inverse)."""
+    global _center
     px, py = _fd_pan_px[0], _fd_pan_px[1]
     _fd_pan_px[0] = _fd_pan_px[1] = 0
     if _view_bounds is None or (px == 0 and py == 0):
         return
-    min_lat, max_lat, min_lon, max_lon = _view_bounds
     s = theme.SIZE
+    base = _panel_to_latlon(s / 2, s / 2)
+    shifted = _panel_to_latlon(s / 2 - px, s / 2 - py)
+    if base is None or shifted is None:
+        return
     if _center is None:
-        _center = ((min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0)
-    _center = (_center[0] + (py / s) * (max_lat - min_lat),
-               _center[1] - (px / s) * (max_lon - min_lon))
-    if _zoom < 1.0:
-        _zoom = 1.0
+        _center = base
+    _center = (_center[0] + (shifted[0] - base[0]),
+               _center[1] + (shifted[1] - base[1]))
 
 
 # --- confirm popup (replace-follow warning) — unchanged behaviour -------------
@@ -289,7 +317,6 @@ def _route_data(f) -> dict:
 
 
 _MERC_Z = 6
-_last_basemap = None   # (surface, (min_lat,max_lat,min_lon,max_lon), (w,h))
 
 
 def _merc_inv(x, y):
@@ -344,43 +371,92 @@ def _frame_route_in_band(min_lat, max_lat, min_lon, max_lon, inset, map_w, map_h
     return lat_lo, lat_hi, lon_lo, lon_hi
 
 
-def _basemap_or_stale(min_lat, max_lat, min_lon, max_lon, map_w, map_h):
-    """Return the basemap for these bounds, or, while new tiles are still being
-    fetched, a reprojected copy of the last one so the map never blanks out."""
-    global _last_basemap
+# --- fast basemap: fetch one OVERSCAN raster, then crop a window per frame -----
+# Mirrors the radar/live_map trick: the slow part (download+stitch tiles) happens
+# once; panning and zooming are just a crop+scale of the cached raster, so they
+# feel instant instead of re-downloading tiles (20s timeouts) on every change.
+_ov_raster = None   # overview: (surf, (mnlat,mxlat,mnlon,mxlon), (w,h), key)
+_hi_raster = None   # detail (when zoomed): same shape
+
+
+def _overscan(bounds, ovs, rnd):
+    mn_lat, mx_lat, mn_lon, mx_lon = bounds
+    clat, clon = (mn_lat + mx_lat) / 2.0, (mn_lon + mx_lon) / 2.0
+    return (round(clat - (clat - mn_lat) * ovs, rnd),
+            round(clat + (mx_lat - clat) * ovs, rnd),
+            round(clon - (clon - mn_lon) * ovs, rnd),
+            round(clon + (mx_lon - clon) * ovs, rnd))
+
+
+def _request_raster(bounds, map_w, map_h, ovs, maxz, rnd, prev):
+    """Fetch (async, cached in route_map) an overscanned raster for these bounds.
+    Returns a fresh raster tuple when ready, else the previous one (never blanks)."""
+    rb = _overscan(bounds, ovs, rnd)
+    key = (rb, maxz, int(map_w * ovs))
+    if prev is not None and prev[3] == key:
+        return prev
+    rw = max(1, int(map_w * ovs))
+    rh = max(1, int(map_h * ovs))
     try:
-        # allow deep tile zoom so a tight view (GA flight, zoomed-in route)
-        # stays sharp instead of upscaling z7 tiles into a blur
-        bm = route_map._request_basemap(min_lat, max_lat, min_lon, max_lon,
-                                        map_w, map_h, max_zoom=14)
+        surf = route_map._request_basemap(rb[0], rb[1], rb[2], rb[3], rw, rh, max_zoom=maxz)
     except Exception:
-        bm = None
-    if bm is not None:
-        _last_basemap = (bm, (min_lat, max_lat, min_lon, max_lon), (map_w, map_h))
-        return bm
-    if _last_basemap is None:
-        return None
-    src, (oln0, oln1, olo0, olo1), _ = _last_basemap
+        surf = None
+    if surf is None:
+        return prev
+    return (surf, rb, (rw, rh), key)
+
+
+def _view_inside(view, rb):
+    return (view[0] >= rb[0] - 1e-6 and view[1] <= rb[1] + 1e-6
+            and view[2] >= rb[2] - 1e-6 and view[3] <= rb[3] + 1e-6)
+
+
+def _crop_blit(panel, inset, map_w, map_h, raster, view):
+    """Crop the raster to the view bounds (mercator) and scale into the panel."""
+    surf, (rmn_lat, rmx_lat, rmn_lon, rmx_lon), (rw, rh), _ = raster
+    vmn_lat, vmx_lat, vmn_lon, vmx_lon = view
+
+    def rpx(lat, lon):
+        return route_map._mercator_to_panel(
+            lat, route_map._unwrap_lon(lon, rmn_lon),
+            min_lat=rmn_lat, max_lat=rmx_lat, min_lon=rmn_lon, max_lon=rmx_lon,
+            left=0, top=0, width=rw, height=rh)
+
+    x0, y0 = rpx(vmx_lat, vmn_lon)
+    x1, y1 = rpx(vmn_lat, vmx_lon)
+    cx, cy = min(x0, x1), min(y0, y1)
+    cw, ch = abs(x1 - x0), abs(y1 - y0)
+    crect = pygame.Rect(int(round(cx)), int(round(cy)),
+                        max(1, int(round(cw))), max(1, int(round(ch)))).clip(surf.get_rect())
+    if crect.w < 2 or crect.h < 2:
+        return False
     try:
-        ox0, oy0 = route_map._mercator_xy(oln1, olo0, _MERC_Z)   # old top-left
-        ox1, oy1 = route_map._mercator_xy(oln0, olo1, _MERC_Z)   # old bottom-right
-        vx0, vy0 = route_map._mercator_xy(max_lat, min_lon, _MERC_Z)
-        vx1, vy1 = route_map._mercator_xy(min_lat, max_lon, _MERC_Z)
-        sw = max(vx1 - vx0, 1e-6)
-        sh = max(vy1 - vy0, 1e-6)
-        dx0 = (ox0 - vx0) / sw * map_w
-        dy0 = (oy0 - vy0) / sh * map_h
-        dw = int(round((ox1 - ox0) / sw * map_w))
-        dh = int(round((oy1 - oy0) / sh * map_h))
-        if not (2 <= dw <= map_w * 10 and 2 <= dh <= map_h * 10):
-            return None
-        scaled = pygame.transform.smoothscale(src, (dw, dh))
-        stale = pygame.Surface((map_w, map_h), pygame.SRCALPHA)
-        stale.fill(_SEA)
-        stale.blit(scaled, (int(round(dx0)), int(round(dy0))))
-        return stale
+        scaled = pygame.transform.smoothscale(surf.subsurface(crect), (map_w, map_h))
     except Exception:
-        return None
+        return False
+    panel.blit(scaled, (inset, inset))
+    return True
+
+
+def _render_basemap(panel, inset, map_w, map_h, base_view, view, interactive):
+    """Draw the basemap by cropping cached rasters (fast). base_view = the resting
+    full-route framing (stable); view = what is shown now (zoom/pan applied)."""
+    global _ov_raster, _hi_raster
+    # Overview raster: keyed to the stable route framing so zoom/pan don't refetch.
+    _ov_raster = _request_raster(base_view, map_w, map_h, ovs=1.5, maxz=12, rnd=1, prev=_ov_raster)
+    drew = False
+    if interactive and view != base_view:
+        # Zoomed in: a small-area raster at deep zoom is sharp AND cheap (few tiles).
+        _hi_raster = _request_raster(view, map_w, map_h, ovs=1.25, maxz=15, rnd=2, prev=_hi_raster)
+        if _hi_raster is not None and _view_inside(view, _hi_raster[1]):
+            drew = _crop_blit(panel, inset, map_w, map_h, _hi_raster, view)
+    if not drew and _ov_raster is not None and _view_inside(view, _ov_raster[1]):
+        drew = _crop_blit(panel, inset, map_w, map_h, _ov_raster, view)
+    if drew:
+        dim = pygame.Surface((map_w, map_h), pygame.SRCALPHA)
+        dim.fill((2, 8, 20, 95))
+        panel.blit(dim, (inset, inset))
+    return drew
 
 
 def _place_label(panel, xy, text, inset, map_w, map_h):
@@ -452,6 +528,7 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
         else:
             min_lat, max_lat, min_lon, max_lon = _aspect_fit(
                 min_lat, max_lat, min_lon, max_lon, rect.width / max(rect.height, 1))
+        base_view = (min_lat, max_lat, min_lon, max_lon)
 
         # Pan/zoom (hero only) relative to the base framing.
         if interactive and (_zoom != 1.0 or _center is not None):
@@ -465,12 +542,8 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
         if interactive:
             _view_bounds = (min_lat, max_lat, min_lon, max_lon)
 
-        basemap = _basemap_or_stale(min_lat, max_lat, min_lon, max_lon, map_w, map_h)
-        if basemap is not None:
-            panel.blit(basemap, (inset, inset))
-            dim = pygame.Surface((map_w, map_h), pygame.SRCALPHA)
-            dim.fill((2, 8, 20, 95))
-            panel.blit(dim, (inset, inset))
+        _render_basemap(panel, inset, map_w, map_h, base_view,
+                        (min_lat, max_lat, min_lon, max_lon), interactive)
 
         def to_xy(lat, lon):
             return route_map._mercator_to_panel(
