@@ -633,12 +633,73 @@ def _draw_hud_frame_accents(surface):
     pygame.draw.circle(surface, theme.AIRCRAFT, (cx, cy), theme.s(5), max(1, theme.s(1)))
 
 
+_city_label_cache = {"key": None, "items": []}
+
+
+def _visible_city_labels():
+    """A few nearby towns (name + dot) for orientation, cached by centre/scale."""
+    try:
+        from utilities import cities
+        cities._load()
+        db = cities._db or []
+    except Exception:
+        return []
+    if not db:
+        return []
+    key = (geo.LOCATION_HOME, scale.active_index(),
+           round(settings.effective_facing_deg(), 1), round(geo.inner_ring_max_km(), 1))
+    if _city_label_cache["key"] == key:
+        return _city_label_cache["items"]
+    max_km = geo.inner_ring_max_km() * 0.95
+    items = []
+    for name, clat, clon in db:
+        try:
+            _, _, dist = geo.local_offset_km(clat, clon)
+        except Exception:
+            continue
+        if dist > max_km:
+            continue
+        xy = geo.lat_lon_to_screen(clat, clon)
+        if xy is None:
+            continue
+        items.append((dist, name, int(xy[0]), int(xy[1])))
+    items.sort(key=lambda t: t[0])
+    placed, out = [], []
+    minsep = theme.s(46)
+    for dist, name, x, y in items:
+        if any((x - px) ** 2 + (y - py) ** 2 < minsep * minsep for px, py in placed):
+            continue
+        placed.append((x, y))
+        out.append((name, x, y))
+        if len(out) >= 7:
+            break
+    _city_label_cache["key"] = key
+    _city_label_cache["items"] = out
+    return out
+
+
+def _draw_city_labels(surface):
+    items = _visible_city_labels()
+    if not items:
+        return
+    font = draw.load_font(theme.s(8))
+    col = (156, 180, 208)
+    dot = (108, 138, 174)
+    for name, x, y in items:
+        pygame.draw.circle(surface, dot, (x, y), max(1, theme.s(1)))
+        sh = font.render(name, True, (3, 8, 16))
+        surface.blit(sh, sh.get_rect(midleft=(x + theme.s(5) + 1, y + 1)))
+        t = font.render(name, True, col)
+        surface.blit(t, t.get_rect(midleft=(x + theme.s(5), y)))
+
+
 def _draw_grid(surface, *, calibrate: bool = False):
     center = (theme.CENTER_X, theme.CENTER_Y)
     line_w = max(1, theme.s(2))
     facing = settings.effective_facing_deg()
     if not calibrate:
         _draw_hud_frame_accents(surface)
+        _draw_city_labels(surface)
     if settings.show_range_rings():
         # Subtle rings over the map (FR24-clean); no full-diameter crosshairs —
         # the map, compass and centre marker give orientation.
