@@ -306,6 +306,7 @@ class RoundTouchDisplay:
         self._panning_map = False
         self._pan_offset = (0, 0)
         self._pan_drag_start = None
+        self._fd_pan_last = None   # flight-detail map pan (last drag sample)
         self._long_press_pan = long_press_pan.LongPressPanController()
         self._pan_drag_was_active = False
         self._pan_commit_choice = False
@@ -3270,6 +3271,33 @@ class RoundTouchDisplay:
         self._long_press_pan.note_pan_drag_active()
         return True
 
+    def _update_flight_pan_drag(self) -> bool:
+        """One-finger drag pans the flight-detail map (swipe is free for this)."""
+        if self.screen != SCREEN_FLIGHT:
+            self._fd_pan_last = None
+            return False
+        if not self.input.is_dragging():
+            if self._fd_pan_last is not None:
+                self._fd_pan_last = None
+                flight_detail.pan_commit()   # settle: geo recentre + refetch
+                return True
+            return False
+        pos = self.input.drag_pos()
+        if pos is None:
+            return False
+        if self._fd_pan_last is None:
+            # Drag has begun — pan, not a tap: swallow the release tap/swipe.
+            self._fd_pan_last = pos
+            self.input.suppress_finish_result()
+            return False
+        dx = pos[0] - self._fd_pan_last[0]
+        dy = pos[1] - self._fd_pan_last[1]
+        self._fd_pan_last = pos
+        if dx == 0 and dy == 0:
+            return False
+        flight_detail.pan_by(dx, dy)
+        return True
+
     @staticmethod
     def _angle_about_center(x: float, y: float) -> float:
         """Screen angle in degrees: 0 = up, clockwise positive."""
@@ -6202,6 +6230,7 @@ class RoundTouchDisplay:
                     self._update_facing_drag()
                     or self._update_radar_hud_layout_drag()
                     or self._update_map_pan_drag()
+                    or self._update_flight_pan_drag()
                     or self._update_theme_rgb_drag()
                     or self._update_brightness_slider_drag()
                     or self._update_hud_opacity_slider_drag()

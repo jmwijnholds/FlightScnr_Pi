@@ -60,6 +60,7 @@ _MAX_ZOOM = 8.0
 _zoom = 1.0
 _center = None
 _view_bounds = None  # (min_lat, max_lat, min_lon, max_lon)
+_fd_pan_px = [0, 0]  # live pixel offset while dragging (committed on release)
 
 
 # --- public hit-tests ---------------------------------------------------------
@@ -120,6 +121,7 @@ def reset_view() -> None:
     global _zoom, _center
     _zoom = 1.0
     _center = None
+    _fd_pan_px[0] = _fd_pan_px[1] = 0
 
 
 def zoom_at(x: int, y: int) -> None:
@@ -129,6 +131,7 @@ def zoom_at(x: int, y: int) -> None:
         return
     min_lat, max_lat, min_lon, max_lon = _view_bounds
     s = theme.SIZE
+    _fd_pan_px[0] = _fd_pan_px[1] = 0
     if _zoom >= _MAX_ZOOM - 1e-6:
         _zoom = 1.0
         _center = None
@@ -139,16 +142,24 @@ def zoom_at(x: int, y: int) -> None:
 
 
 def pan_by(dx: int, dy: int) -> None:
-    """Drag: shift the view by a pixel delta (one finger)."""
+    """Drag: accumulate a live pixel offset (the map is blitted shifted)."""
+    _fd_pan_px[0] += int(dx)
+    _fd_pan_px[1] += int(dy)
+
+
+def pan_commit() -> None:
+    """On release: turn the pixel offset into a geo recentre, then refetch."""
     global _center, _zoom
-    if _view_bounds is None:
+    px, py = _fd_pan_px[0], _fd_pan_px[1]
+    _fd_pan_px[0] = _fd_pan_px[1] = 0
+    if _view_bounds is None or (px == 0 and py == 0):
         return
     min_lat, max_lat, min_lon, max_lon = _view_bounds
     s = theme.SIZE
     if _center is None:
         _center = ((min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0)
-    _center = (_center[0] + (dy / s) * (max_lat - min_lat),
-               _center[1] - (dx / s) * (max_lon - min_lon))
+    _center = (_center[0] + (py / s) * (max_lat - min_lat),
+               _center[1] - (px / s) * (max_lon - min_lon))
     if _zoom < 1.0:
         _zoom = 1.0
 
@@ -383,7 +394,9 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
 
     panel.blit(_rounded_mask(rect.size, radius), (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
     pygame.draw.rect(panel, (*_ACCENT, 90), local, width=max(1, theme.s(1)), border_radius=radius)
-    surface.blit(panel, rect.topleft)
+    ox = _fd_pan_px[0] if interactive else 0
+    oy = _fd_pan_px[1] if interactive else 0
+    surface.blit(panel, (rect.left + ox, rect.top + oy))
 
 
 def _draw_photo_tile(surface, rect, f, radius):
