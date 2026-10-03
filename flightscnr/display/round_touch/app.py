@@ -3824,6 +3824,25 @@ class RoundTouchDisplay:
         self._maybe_enrich_flight_detail()
         return True
 
+    def _open_tracked_or_nearest_flight(self) -> bool:
+        """Swipe-right shortcut: open the flight-detail screen on the followed
+        aircraft (if any), otherwise the nearest. Replaces the old Tracked/Live."""
+        ordered = self._ordered_flights()
+        if not ordered:
+            return False
+        target = None
+        try:
+            from utilities.overhead import load_tracked_callsign
+            tc = (load_tracked_callsign() or "").strip().upper()
+        except Exception:
+            tc = ""
+        if tc:
+            for fl in ordered:
+                if (fl.get("callsign") or "").strip().upper() == tc:
+                    target = fl
+                    break
+        return self._open_picked_flight(target or ordered[0])
+
     def _tick_scroll_momentum(self) -> None:
         """Decay-based inertial scroll after a settings flick."""
         if (
@@ -4710,10 +4729,12 @@ class RoundTouchDisplay:
             self._safe_draw()
         elif swipe == input_handler.SWIPE_RIGHT and self.screen == SCREEN_RADAR:
             if self._radar_swipe_committed(swipe_start, swipe_end):
-                self._open_screen(SCREEN_TRACKED)
-                self._scroll.reset()
-                self._note_activity()
-                self._safe_draw()
+                # Open the flight-detail screen on the followed (or nearest)
+                # aircraft — it replaces the old Tracked/Live screens.
+                if self._open_tracked_or_nearest_flight():
+                    self._scroll.reset()
+                    self._note_activity()
+                    self._safe_draw()
             elif self._open_radar_swipe_target(swipe_start, swipe_end):
                 self._safe_draw()
         elif swipe == input_handler.SWIPE_LEFT and self.screen == SCREEN_RADAR:
@@ -4728,19 +4749,6 @@ class RoundTouchDisplay:
                 self._safe_draw()
             elif self._open_radar_swipe_target(swipe_start, swipe_end):
                 self._safe_draw()
-        elif swipe == input_handler.SWIPE_RIGHT and self.screen == SCREEN_TRACKED:
-            # Tracked → Live (further left).
-            self._open_screen(SCREEN_LIVE)
-            self._note_activity()
-            self._safe_draw()
-        elif swipe == input_handler.SWIPE_LEFT and self.screen == SCREEN_LIVE:
-            # Live → Tracked.
-            self._open_screen(SCREEN_TRACKED)
-            self._note_activity()
-            self._safe_draw()
-        elif swipe == input_handler.SWIPE_LEFT and self.screen == SCREEN_TRACKED:
-            self._return_to_radar()
-            self._safe_draw()
         elif swipe == input_handler.SWIPE_DOWN and self.screen == SCREEN_RADAR:
             self._open_preferred_clock()
             self._auto_idle_clock = False
