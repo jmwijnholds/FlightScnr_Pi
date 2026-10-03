@@ -230,15 +230,17 @@ def _basemap_key(
     width: int,
     height: int,
     style: str,
+    max_zoom: int = 7,
 ) -> tuple:
     return (
-        round(min_lat, 2),
-        round(max_lat, 2),
-        round(min_lon, 2),
-        round(max_lon, 2),
+        round(min_lat, 3),
+        round(max_lat, 3),
+        round(min_lon, 3),
+        round(max_lon, 3),
         int(width),
         int(height),
         style,
+        int(max_zoom),
     )
 
 
@@ -250,6 +252,7 @@ def _pick_zoom(
     width: int,
     height: int,
     style: str,
+    max_zoom: int = 7,
 ) -> int | None:
     """Best zoom for the route bbox (tile budget safe).
 
@@ -263,7 +266,7 @@ def _pick_zoom(
     """
     # z=1 keeps long-haul tile counts tiny; z=0 is a single world tile but too
     # soft after upscale, so prefer 1+.
-    z_lo, z_hi = 1, 7
+    z_lo, z_hi = 1, max(7, int(max_zoom))
     if style == "vfr":
         z_lo, z_hi = map_bg.VFR_ZOOM_MIN, min(map_bg.VFR_ZOOM_MAX, 10)
     best_fit = None
@@ -309,6 +312,7 @@ def _compose_basemap(
     width: int,
     height: int,
     style: str,
+    max_zoom: int = 7,
 ) -> pygame.Surface | None:
     """Fetch and stitch map tiles for the route bounding box."""
     style = map_bg.normalize_map_style(style)
@@ -316,11 +320,11 @@ def _compose_basemap(
         surf = pygame.Surface((max(1, int(width)), max(1, int(height))))
         surf.fill(map_bg.FLAT_BLACK)
         return surf
-    zoom = _pick_zoom(min_lat, max_lat, min_lon, max_lon, width, height, style)
+    zoom = _pick_zoom(min_lat, max_lat, min_lon, max_lon, width, height, style, max_zoom)
     # VFR sectionals can't cover long-haul routes at usable zoom — fall back.
     if zoom is None and style == "vfr":
         style = "dark"
-        zoom = _pick_zoom(min_lat, max_lat, min_lon, max_lon, width, height, style)
+        zoom = _pick_zoom(min_lat, max_lat, min_lon, max_lon, width, height, style, max_zoom)
     if zoom is None:
         return None
 
@@ -362,7 +366,7 @@ def _compose_basemap(
             zoom,
         )
         return _compose_basemap(
-            min_lat, max_lat, min_lon, max_lon, width, height, "dark"
+            min_lat, max_lat, min_lon, max_lon, width, height, "dark", max_zoom
         )
     if not tiles:
         return None
@@ -406,11 +410,12 @@ def _request_basemap(
     max_lon: float,
     width: int,
     height: int,
+    max_zoom: int = 7,
 ) -> pygame.Surface | None:
     """Return cached basemap or kick off a background fetch."""
     global _basemap_dirty
     style = _route_map_style()
-    key = _basemap_key(min_lat, max_lat, min_lon, max_lon, width, height, style)
+    key = _basemap_key(min_lat, max_lat, min_lon, max_lon, width, height, style, max_zoom)
     with _basemap_lock:
         hit = _basemap_cache.get(key)
         if hit is not None:
@@ -428,7 +433,7 @@ def _request_basemap(
         global _basemap_dirty
         try:
             surf = _compose_basemap(
-                min_lat, max_lat, min_lon, max_lon, width, height, style
+                min_lat, max_lat, min_lon, max_lon, width, height, style, max_zoom
             )
             if surf is not None:
                 with _basemap_lock:

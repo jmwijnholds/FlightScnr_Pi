@@ -59,6 +59,7 @@ _next_rect = pygame.Rect(0, 0, 0, 0)
 _MAX_ZOOM = 8.0
 _zoom = 1.0
 _center = None
+_last_flight_key = None
 _view_bounds = None  # (min_lat, max_lat, min_lon, max_lon)
 _fd_pan_px = [0, 0]  # live pixel offset while dragging (committed on release)
 
@@ -125,20 +126,21 @@ def reset_view() -> None:
 
 
 def zoom_at(x: int, y: int) -> None:
-    """Double-tap: zoom in centred on the tapped point; past max, reset to fit."""
+    """Double-tap toggles: fit-the-whole-route ↔ zoomed in on the tapped point.
+    So a second double-tap always zooms back out (single-touch has no pinch)."""
     global _zoom, _center
     if _view_bounds is None:
         return
-    min_lat, max_lat, min_lon, max_lon = _view_bounds
-    s = theme.SIZE
     _fd_pan_px[0] = _fd_pan_px[1] = 0
-    if _zoom >= _MAX_ZOOM - 1e-6:
+    if _zoom > 1.0 + 1e-6:          # already zoomed → back out to the full route
         _zoom = 1.0
         _center = None
         return
+    min_lat, max_lat, min_lon, max_lon = _view_bounds
+    s = theme.SIZE
     _center = (max_lat - (y / s) * (max_lat - min_lat),
                min_lon + (x / s) * (max_lon - min_lon))
-    _zoom = min(_MAX_ZOOM, _zoom * 2.0)
+    _zoom = 3.0
 
 
 def pan_by(dx: int, dy: int) -> None:
@@ -347,7 +349,10 @@ def _basemap_or_stale(min_lat, max_lat, min_lon, max_lon, map_w, map_h):
     fetched, a reprojected copy of the last one so the map never blanks out."""
     global _last_basemap
     try:
-        bm = route_map._request_basemap(min_lat, max_lat, min_lon, max_lon, map_w, map_h)
+        # allow deep tile zoom so a tight view (GA flight, zoomed-in route)
+        # stays sharp instead of upscaling z7 tiles into a blur
+        bm = route_map._request_basemap(min_lat, max_lat, min_lon, max_lon,
+                                        map_w, map_h, max_zoom=14)
     except Exception:
         bm = None
     if bm is not None:
@@ -378,6 +383,24 @@ def _basemap_or_stale(min_lat, max_lat, min_lon, max_lon, map_w, map_h):
         return None
 
 
+def _place_label(panel, xy, text, inset, map_w, map_h):
+    """Draw an airport-name pill beside an endpoint marker, clamped on-panel."""
+    font = ck._sg(theme.s(8), "bold")
+    t = font.render(text, True, _TXT)
+    padx, pady = theme.s(4), theme.s(2)
+    pw, ph = t.get_width() + padx * 2, t.get_height() + pady * 2
+    cx, cy = xy
+    below = cy < inset + map_h * 0.5
+    ly = cy + theme.s(9) if below else cy - theme.s(9) - ph
+    lx = cx - pw / 2
+    lx = max(inset + 2, min(lx, inset + map_w - pw - 2))
+    ly = max(inset + 2, min(ly, inset + map_h - ph - 2))
+    bg = pygame.Rect(int(lx), int(ly), int(pw), int(ph))
+    _rrect(panel, bg, (4, 10, 22, 205), ph // 2)
+    _rrect(panel, bg, (*_ACC_HI, 120), ph // 2, width=1)
+    panel.blit(t, (int(lx + padx), int(ly + pady)))
+
+
 def _draw_map_panel(surface, rect, f, radius, interactive=False):
     global _view_bounds
     panel = pygame.Surface(rect.size, pygame.SRCALPHA)
@@ -387,40 +410,46 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
     data = _route_data(f)
     cur = (f.get("plane_latitude"), f.get("plane_longitude"))
     has_cur = _valid(cur[0], cur[1])
-    has_route = route_map.route_coords_available(data)
-    bounds = route_map._route_bounds(data) if has_route else None
     has_o = _valid(data["origin_lat"], data["origin_lon"])
     has_d = _valid(data["dest_lat"], data["dest_lon"])
     trail = _trail_latlon(f)
 
-    if bounds is None and has_cur:
-        # No filed route (helicopter / GA / drone): centre on the aircraft,
-        # widened to include any trail, so we still show a real map.
-        lats = [float(cur[0])] + [p[0] for p in trail]
-        lons = [float(cur[1])] + [p[1] for p in trail]
-        plat = max((max(lats) - min(lats)) * 0.35, 0.14)
-        plon = max((max(lons) - min(lons)) * 0.35, 0.14)
-        bounds = (min(lats) - plat, max(lats) + plat,
-                  min(lons) - plon, max(lons) + plon, float(cur[1]))
+    # Collect every real point so the view frames them all: origin, destination,
+    # live position and the flown trail. Works for filed routes AND for GA /
+    # helicopters that only carry a position (plus maybe one endpoint or a trail).
+    pts = []
+    if has_o:
+        pts.append((float(data["origin_lat"]), float(data["origin_lon"])))
+    if has_d:
+        pts.append((float(data["dest_lat"]), float(data["dest_lon"])))
+    if has_cur:
+        pts.append((float(cur[0]), float(cur[1])))
+    pts.extend(trail)
 
-    if bounds is not None:
-        min_lat, max_lat, min_lon, max_lon, ref_lon = bounds
+    if pts:
+        ref_lon = pts[0][1]
+        lats = [p[0] for p in pts]
+        lons = [route_map._unwrap_lon(p[1], ref_lon) for p in pts]
+        min_lat, max_lat = min(lats), max(lats)
+        min_lon, max_lon = min(lons), max(lons)
+        single = (max_lat - min_lat) < 0.02 and (max_lon - min_lon) < 0.02
+        if single:
+            clat, clon = (min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0
+            pad = 0.18
+            min_lat, max_lat = clat - pad, clat + pad
+            min_lon, max_lon = clon - pad, clon + pad
+
         inset = theme.s(4)
         map_w = max(1, rect.width - inset * 2)
         map_h = max(1, rect.height - inset * 2)
 
-        # Base framing. The interactive hero frames the WHOLE route into a
-        # central safe band so origin + destination are always visible and never
-        # fall under the header, the photo inset or the chips/buttons.
-        if interactive and has_route:
+        # Base framing. The interactive hero frames ALL points into a central
+        # safe band so the endpoints are always visible and never fall under the
+        # header, the photo inset or the chips/buttons.
+        if interactive and not single:
             min_lat, max_lat, min_lon, max_lon = _frame_route_in_band(
                 min_lat, max_lat, min_lon, max_lon, inset, map_w, map_h)
         else:
-            if has_route:
-                _ml, _mo = (min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0
-                _xp = 0.12
-                min_lat = _ml - (_ml - min_lat) * (1 + _xp); max_lat = _ml + (max_lat - _ml) * (1 + _xp)
-                min_lon = _mo - (_mo - min_lon) * (1 + _xp); max_lon = _mo + (max_lon - _mo) * (1 + _xp)
             min_lat, max_lat, min_lon, max_lon = _aspect_fit(
                 min_lat, max_lat, min_lon, max_lon, rect.width / max(rect.height, 1))
 
@@ -473,12 +502,15 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
             if trail:
                 for p in tp[:-1:max(1, len(tp) // 7)]:
                     pygame.draw.circle(panel, (*_ACC_HI, 160), (int(p[0]), int(p[1])), 2)
-        for pt in (o, d):
+        for pt, nm in ((o, data.get("origin")), (d, data.get("destination"))):
             if pt is None:
                 continue
             xy = to_xy(pt[0], pt[1])
             pygame.draw.circle(panel, _ACC_HI, (int(xy[0]), int(xy[1])), theme.s(3))
             pygame.draw.circle(panel, _BG, (int(xy[0]), int(xy[1])), max(1, theme.s(2)))
+            lbl = str(nm or "").strip()
+            if interactive and lbl:
+                _place_label(panel, xy, lbl[:14], inset, map_w, map_h)
         if has_cur:
             cp = to_xy(float(cur[0]), float(cur[1]))
             hdg = f.get("heading") or 0
@@ -650,6 +682,13 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
 
     idx = max(0, min(selected_index, len(flights) - 1))
     f = flights[idx]
+    # Reset zoom/pan whenever the shown flight changes (prev/next, follow, etc.),
+    # so you never land on a new flight still zoomed into the previous one.
+    global _last_flight_key
+    fk = f.get("flight_id") or f.get("callsign") or f.get("name") or id(f)
+    if fk != _last_flight_key:
+        _last_flight_key = fk
+        reset_view()
     is_vessel = f.get("kind") == "vessel"
     title = (f.get("name") or f.get("callsign") or tr("flight.vessel_default")) if is_vessel \
         else display_flight_id_for_flight(f)
