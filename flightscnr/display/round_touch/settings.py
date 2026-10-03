@@ -1681,6 +1681,23 @@ def quiet_dim_percent() -> int:
     return max(0, min(100, pct))
 
 
+# Flight-detail chip unit choices (aviation vs metric), remembered per tap.
+def flight_alt_metric() -> bool:
+    return bool(_state.get("flight_alt_metric", False))
+
+
+def set_flight_alt_metric(value: bool) -> None:
+    _rmw_save({"flight_alt_metric": bool(value)})
+
+
+def flight_spd_metric() -> bool:
+    return bool(_state.get("flight_spd_metric", False))
+
+
+def set_flight_spd_metric(value: bool) -> None:
+    _rmw_save({"flight_spd_metric": bool(value)})
+
+
 TARGET_CATEGORIES = ("plane", "heli", "drone", "vessel")
 TARGET_FORMS = ("icon", "triangle", "dot")
 COMPASS_LABEL_MODES = ("letters", "degrees", "both")
