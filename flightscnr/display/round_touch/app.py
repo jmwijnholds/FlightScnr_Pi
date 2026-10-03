@@ -4291,8 +4291,44 @@ class RoundTouchDisplay:
 
         set_tracked_callsign(callsign)
         self._follow_last_pos = None  # don't reuse the previous target's fix
-        self._open_screen(SCREEN_LIVE)
+        try:
+            self.overhead.set_follow_pin_polling(True)
+        except Exception:
+            pass
+        # Stay on our flight-detail screen (it IS the follow view now): the map
+        # switches to the live follow-camera. No jump to the old Live screen.
+        flight_detail.reset_view()
         self._safe_draw()
+
+    def _stop_following(self) -> None:
+        from utilities.overhead import set_tracked_callsign
+
+        set_tracked_callsign("")
+        try:
+            self.overhead.set_follow_pin_polling(False)
+        except Exception:
+            pass
+        try:
+            tracked.clear_pinned()
+        except Exception:
+            pass
+        flight_detail.reset_view()   # back to the whole-route overview
+        self._safe_draw()
+
+    def _toggle_follow_current_flight(self) -> None:
+        from utilities.overhead import load_tracked_callsign
+
+        ordered = self._ordered_flights()
+        if not ordered:
+            return
+        idx = max(0, min(self.flight_index, len(ordered) - 1))
+        callsign = str(ordered[idx].get("callsign") or "").strip().upper()
+        if not callsign:
+            return
+        if load_tracked_callsign() == callsign:
+            self._stop_following()
+        else:
+            self._request_follow_current_flight()
 
     def _maybe_handle_tracking_cleared(self) -> bool:
         """Leave Follow/Tracked and show popup when overhead auto-cleared the pin.
@@ -4954,7 +4990,7 @@ class RoundTouchDisplay:
                 self._safe_draw()
                 return
             if flight_detail.follow_button_hit(tap[0], tap[1]):
-                self._request_follow_current_flight()
+                self._toggle_follow_current_flight()
                 return
             if flight_detail.zoom_in_hit(tap[0], tap[1]):
                 flight_detail.zoom_in()

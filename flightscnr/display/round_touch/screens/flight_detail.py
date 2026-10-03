@@ -59,6 +59,8 @@ _zoomout_rect = pygame.Rect(0, 0, 0, 0)
 # view, or None to auto-centre. _view_bounds caches the last drawn frame so a
 # double-tap / drag can map screen pixels back to lat/lon.
 _MAX_ZOOM = 10.0
+_FOLLOW_HALF_DEG = 0.22   # follow-cam default half-span (±), scaled by _zoom
+_follow_cam = False       # True = centre on the live aircraft and track it
 _zoom = 1.0
 _center = None
 _zoom_ref = None     # (dlat, dlon) overview span captured when zoom began, so the
@@ -71,6 +73,15 @@ _fd_pan_px = [0, 0]  # live pixel offset while dragging (committed on release)
 # --- public hit-tests ---------------------------------------------------------
 def follow_button_hit(x: int, y: int) -> bool:
     return _follow_btn_rect is not None and _follow_btn_rect.collidepoint(int(x), int(y))
+
+
+def set_follow_cam(on: bool) -> None:
+    """Enable the live follow-camera (map centres on the aircraft and tracks it)."""
+    global _follow_cam
+    on = bool(on)
+    if on != _follow_cam:
+        _follow_cam = on
+        reset_view()   # start the new mode at its default zoom/centre
 
 
 def follow_confirm_hit(x: int, y: int) -> str | None:
@@ -559,29 +570,43 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
         map_w = max(1, rect.width - inset * 2)
         map_h = max(1, rect.height - inset * 2)
 
-        # Base framing. The interactive hero frames ALL points into a central
-        # safe band so the endpoints are always visible and never fall under the
-        # header, the photo inset or the chips/buttons.
-        if interactive and not single:
-            min_lat, max_lat, min_lon, max_lon = _frame_route_in_band(
-                min_lat, max_lat, min_lon, max_lon, inset, map_w, map_h)
-        else:
+        follow_cam = interactive and _follow_cam and has_cur
+        if follow_cam:
+            # Live follow-camera: centre on the aircraft and track it, scaled by
+            # the +/- zoom. The map moves under a pinned plane (like the radar's
+            # Live screen), so the user never loses the target.
+            clat, clon = float(cur[0]), float(cur[1])
+            cosm = max(math.cos(math.radians(clat)), 0.2)
+            half = _FOLLOW_HALF_DEG / max(_zoom, 1e-6)
+            min_lat, max_lat = clat - half, clat + half
+            min_lon, max_lon = clon - half / cosm, clon + half / cosm
             min_lat, max_lat, min_lon, max_lon = _aspect_fit(
                 min_lat, max_lat, min_lon, max_lon, rect.width / max(rect.height, 1))
-        base_view = (min_lat, max_lat, min_lon, max_lon)
+            base_view = (min_lat, max_lat, min_lon, max_lon)
+        else:
+            # Base framing. The interactive hero frames ALL points into a central
+            # safe band so the endpoints are always visible and never fall under
+            # the header, the photo inset or the chips/buttons.
+            if interactive and not single:
+                min_lat, max_lat, min_lon, max_lon = _frame_route_in_band(
+                    min_lat, max_lat, min_lon, max_lon, inset, map_w, map_h)
+            else:
+                min_lat, max_lat, min_lon, max_lon = _aspect_fit(
+                    min_lat, max_lat, min_lon, max_lon, rect.width / max(rect.height, 1))
+            base_view = (min_lat, max_lat, min_lon, max_lon)
 
-        # Pan/zoom (hero only). Use the frozen overview span (_zoom_ref) so the
-        # zoomed view keeps a fixed scale while the live position reframes the
-        # overview underneath — otherwise the map appears to re-zoom by itself.
-        if interactive and (_zoom != 1.0 or _center is not None):
-            ref_dlat = _zoom_ref[0] if _zoom_ref else (max_lat - min_lat)
-            ref_dlon = _zoom_ref[1] if _zoom_ref else (max_lon - min_lon)
-            clat = _center[0] if _center else (min_lat + max_lat) / 2.0
-            clon = _center[1] if _center else (min_lon + max_lon) / 2.0
-            hlat = ref_dlat / 2.0 / _zoom
-            hlon = ref_dlon / 2.0 / _zoom
-            min_lat, max_lat = clat - hlat, clat + hlat
-            min_lon, max_lon = clon - hlon, clon + hlon
+            # Pan/zoom (hero only). Use the frozen overview span (_zoom_ref) so the
+            # zoomed view keeps a fixed scale while the live position reframes the
+            # overview underneath — otherwise the map appears to re-zoom by itself.
+            if interactive and (_zoom != 1.0 or _center is not None):
+                ref_dlat = _zoom_ref[0] if _zoom_ref else (max_lat - min_lat)
+                ref_dlon = _zoom_ref[1] if _zoom_ref else (max_lon - min_lon)
+                clat = _center[0] if _center else (min_lat + max_lat) / 2.0
+                clon = _center[1] if _center else (min_lon + max_lon) / 2.0
+                hlat = ref_dlat / 2.0 / _zoom
+                hlon = ref_dlon / 2.0 / _zoom
+                min_lat, max_lat = clat - hlat, clat + hlat
+                min_lon, max_lon = clon - hlon, clon + hlon
 
         if interactive:
             _view_bounds = (min_lat, max_lat, min_lon, max_lon)
@@ -830,6 +855,17 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
         else display_flight_id_for_flight(f)
     lat = f.get("plane_latitude"); lon = f.get("plane_longitude")
 
+    # Are we following THIS flight? Drives the live follow-camera + button label.
+    callsign = str(f.get("callsign") or "").strip().upper()
+    following = False
+    if not is_vessel and callsign:
+        try:
+            from utilities.overhead import load_tracked_callsign
+            following = load_tracked_callsign() == callsign
+        except Exception:
+            following = False
+    set_follow_cam(following)
+
     # full-bleed hero map, photo as a top-right inset (tap the inset to switch).
     # With no photo there is nothing to switch to, so hide the inset entirely
     # and keep the map as the hero (no empty placeholder thumbnail).
@@ -901,26 +937,21 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
     _chip(surface, pygame.Rect(x0 + 2 * (cw + gap), cyr, cw, chh), "HDG", hdg_s, over_photo=op)
     _chip(surface, pygame.Rect(x0 + 3 * (cw + gap), cyr, cw, chh), "DIST", dv, du, over_photo=op)
 
-    # --- follow ---
-    if not is_vessel and (f.get("callsign") or "").strip():
-        try:
-            from utilities.overhead import load_tracked_callsign
-            following = load_tracked_callsign() == str(f.get("callsign")).strip().upper()
-        except Exception:
-            following = False
+    # --- follow (tap to follow; tap again to stop — live follow-cam while on) ---
+    if not is_vessel and callsign:
         label = tr("flight.following") if following else tr("flight.follow_this")
         ff = ck._sg(theme.s(9), "bold")
-        fl = ff.render(label, True, (220, 236, 255) if not following else _TXT)
+        fl = ff.render(label, True, _TXT if following else (220, 236, 255))
         bw = fl.get_width() + theme.s(58); bh = theme.s(28)
         fb = pygame.Rect(0, 0, bw, bh); fb.center = (cx, theme.s(352))
-        _rrect(surface, fb, (*_ACCENT, 42), bh // 2)
-        _rrect(surface, fb, (*_ACC_HI, 170), bh // 2, width=max(1, theme.s(1)))
+        # solid fill while following so the active state is obvious
+        _rrect(surface, fb, (*_ACCENT, 150 if following else 42), bh // 2)
+        _rrect(surface, fb, (*_ACC_HI, 210 if following else 170), bh // 2, width=max(1, theme.s(1)))
         ic_x = fb.left + theme.s(22)
         pygame.draw.circle(surface, _ACC_HI, (ic_x, fb.centery), theme.s(2))
         pygame.draw.circle(surface, _ACC_HI, (ic_x, fb.centery), theme.s(5), 1)
         surface.blit(fl, fl.get_rect(midleft=(ic_x + theme.s(12), fb.centery)))
-        if not following:
-            _follow_btn_rect = fb.inflate(theme.s(8), theme.s(8))
+        _follow_btn_rect = fb.inflate(theme.s(8), theme.s(8))
 
     # --- on-screen navigation (swipe is free for panning) ---
     _back_rect = _nav_btn(surface, theme.s(58), theme.s(86), "up")
