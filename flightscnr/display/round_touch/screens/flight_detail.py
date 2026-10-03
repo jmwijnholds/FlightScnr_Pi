@@ -225,6 +225,11 @@ def _draw_map_panel(surface, rect, f, radius):
 
     if bounds is not None:
         min_lat, max_lat, min_lon, max_lon, ref_lon = bounds
+        # extra margin so origin/destination don't sit against the round bezel
+        _ml, _mo = (min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0
+        _xp = 0.12
+        min_lat = _ml - (_ml - min_lat) * (1 + _xp); max_lat = _ml + (max_lat - _ml) * (1 + _xp)
+        min_lon = _mo - (_mo - min_lon) * (1 + _xp); max_lon = _mo + (max_lon - _mo) * (1 + _xp)
         # fit the route bounds to the panel aspect (same framing as render_route_map)
         lat_span = max_lat - min_lat
         lon_span = max_lon - min_lon
@@ -346,16 +351,20 @@ def _chip(surface, rect, label, val, unit="", tappable=False):
     vf = ck._sg(theme.s(14), "bold")
     uf = ck._sg(theme.s(8), "regular")
     lab = lf.render(label, True, _MUTED)
-    surface.blit(lab, lab.get_rect(midtop=(rect.centerx, rect.top + theme.s(9))))
     v = vf.render(val, True, _TXT)
     u = uf.render(unit, True, _DIM) if unit else None
-    tw = v.get_width() + (theme.s(3) + u.get_width() if u else 0)
+    # Centre the label-over-value stack vertically as one tight group.
+    inner_gap = theme.s(3)
+    stack_h = lab.get_height() + inner_gap + v.get_height()
+    top = rect.centery - stack_h // 2
+    surface.blit(lab, lab.get_rect(midtop=(rect.centerx, top)))
+    tw = v.get_width() + (theme.s(2) + u.get_width() if u else 0)
     vx = rect.centerx - tw // 2
-    vy = rect.bottom - theme.s(12) - v.get_height()
+    vy = top + lab.get_height() + inner_gap
     surface.blit(v, (vx, vy))
     if u:
-        surface.blit(u, (vx + v.get_width() + theme.s(3),
-                         vy + v.get_height() - u.get_height() - theme.s(2)))
+        surface.blit(u, (vx + v.get_width() + theme.s(2),
+                         vy + v.get_height() - u.get_height() - theme.s(1)))
 
 
 def _unit_arrows(h):
