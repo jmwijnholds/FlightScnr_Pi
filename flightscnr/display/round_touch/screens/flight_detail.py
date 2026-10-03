@@ -286,6 +286,98 @@ def _route_data(f) -> dict:
     }
 
 
+_MERC_Z = 6
+_last_basemap = None   # (surface, (min_lat,max_lat,min_lon,max_lon), (w,h))
+
+
+def _merc_inv(x, y):
+    """Inverse of route_map._mercator_xy at zoom _MERC_Z → (lat, lon)."""
+    from display.round_touch import map_bg
+    t = (2.0 ** _MERC_Z) * map_bg.TILE_SIZE
+    lon = x / t * 360.0 - 180.0
+    lat = math.degrees(math.atan(math.sinh(math.pi * (1.0 - 2.0 * y / t))))
+    return lat, lon
+
+
+def _aspect_fit(min_lat, max_lat, min_lon, max_lon, target):
+    """Grow the shorter axis so the bounds match the panel aspect (no stretch)."""
+    lat_span = max_lat - min_lat
+    lon_span = max_lon - min_lon
+    mid = (min_lat + max_lat) / 2.0
+    cosm = max(math.cos(math.radians(mid)), 0.2)
+    if (lon_span * cosm) / max(lat_span, 1e-6) < target:
+        extra = (target * lat_span / cosm - lon_span) / 2
+        min_lon -= extra
+        max_lon += extra
+    else:
+        extra = (lon_span * cosm / target - lat_span) / 2
+        min_lat = max(-85.0, min_lat - extra)
+        max_lat = min(85.0, max_lat + extra)
+    return min_lat, max_lat, min_lon, max_lon
+
+
+def _frame_route_in_band(min_lat, max_lat, min_lon, max_lon, inset, map_w, map_h):
+    """Frame the route bbox into a central band so both endpoints stay clear of
+    the header/photo (top) and the chips/buttons (bottom), inside the bezel."""
+    x0, ytop = route_map._mercator_xy(max_lat, min_lon, _MERC_Z)
+    x1, ybot = route_map._mercator_xy(min_lat, max_lon, _MERC_Z)
+    rw = x1 - x0
+    rh = ybot - ytop
+    if rw < 1e-3 or rh < 1e-3:
+        return _aspect_fit(min_lat, max_lat, min_lon, max_lon, map_w / max(map_h, 1))
+    rcx = (x0 + x1) / 2.0
+    rcy = (ytop + ybot) / 2.0
+    bhw = map_w * 0.31          # half of the clear central band (pixels)
+    bhh = map_h * 0.185
+    bcx = inset + map_w / 2.0
+    bcy = inset + map_h * 0.485
+    m = 1.12                    # breathing room inside the band
+    s = max(min((2 * bhw) / (rw * m), (2 * bhh) / (rh * m)), 1e-6)
+    view_w = map_w / s
+    view_h = map_h / s
+    xv0 = rcx - (bcx - inset) / map_w * view_w
+    yv0 = rcy - (bcy - inset) / map_h * view_h
+    lat_hi, lon_lo = _merc_inv(xv0, yv0)
+    lat_lo, lon_hi = _merc_inv(xv0 + view_w, yv0 + view_h)
+    return lat_lo, lat_hi, lon_lo, lon_hi
+
+
+def _basemap_or_stale(min_lat, max_lat, min_lon, max_lon, map_w, map_h):
+    """Return the basemap for these bounds, or, while new tiles are still being
+    fetched, a reprojected copy of the last one so the map never blanks out."""
+    global _last_basemap
+    try:
+        bm = route_map._request_basemap(min_lat, max_lat, min_lon, max_lon, map_w, map_h)
+    except Exception:
+        bm = None
+    if bm is not None:
+        _last_basemap = (bm, (min_lat, max_lat, min_lon, max_lon), (map_w, map_h))
+        return bm
+    if _last_basemap is None:
+        return None
+    src, (oln0, oln1, olo0, olo1), _ = _last_basemap
+    try:
+        ox0, oy0 = route_map._mercator_xy(oln1, olo0, _MERC_Z)   # old top-left
+        ox1, oy1 = route_map._mercator_xy(oln0, olo1, _MERC_Z)   # old bottom-right
+        vx0, vy0 = route_map._mercator_xy(max_lat, min_lon, _MERC_Z)
+        vx1, vy1 = route_map._mercator_xy(min_lat, max_lon, _MERC_Z)
+        sw = max(vx1 - vx0, 1e-6)
+        sh = max(vy1 - vy0, 1e-6)
+        dx0 = (ox0 - vx0) / sw * map_w
+        dy0 = (oy0 - vy0) / sh * map_h
+        dw = int(round((ox1 - ox0) / sw * map_w))
+        dh = int(round((oy1 - oy0) / sh * map_h))
+        if not (2 <= dw <= map_w * 10 and 2 <= dh <= map_h * 10):
+            return None
+        scaled = pygame.transform.smoothscale(src, (dw, dh))
+        stale = pygame.Surface((map_w, map_h), pygame.SRCALPHA)
+        stale.fill(_SEA)
+        stale.blit(scaled, (int(round(dx0)), int(round(dy0))))
+        return stale
+    except Exception:
+        return None
+
+
 def _draw_map_panel(surface, rect, f, radius, interactive=False):
     global _view_bounds
     panel = pygame.Surface(rect.size, pygame.SRCALPHA)
@@ -313,13 +405,26 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
 
     if bounds is not None:
         min_lat, max_lat, min_lon, max_lon, ref_lon = bounds
-        if has_route:
-            # extra margin so origin/destination don't sit against the bezel
-            _ml, _mo = (min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0
-            _xp = 0.12
-            min_lat = _ml - (_ml - min_lat) * (1 + _xp); max_lat = _ml + (max_lat - _ml) * (1 + _xp)
-            min_lon = _mo - (_mo - min_lon) * (1 + _xp); max_lon = _mo + (max_lon - _mo) * (1 + _xp)
-        # manual pan/zoom (hero map only): recentre + shrink the span
+        inset = theme.s(4)
+        map_w = max(1, rect.width - inset * 2)
+        map_h = max(1, rect.height - inset * 2)
+
+        # Base framing. The interactive hero frames the WHOLE route into a
+        # central safe band so origin + destination are always visible and never
+        # fall under the header, the photo inset or the chips/buttons.
+        if interactive and has_route:
+            min_lat, max_lat, min_lon, max_lon = _frame_route_in_band(
+                min_lat, max_lat, min_lon, max_lon, inset, map_w, map_h)
+        else:
+            if has_route:
+                _ml, _mo = (min_lat + max_lat) / 2.0, (min_lon + max_lon) / 2.0
+                _xp = 0.12
+                min_lat = _ml - (_ml - min_lat) * (1 + _xp); max_lat = _ml + (max_lat - _ml) * (1 + _xp)
+                min_lon = _mo - (_mo - min_lon) * (1 + _xp); max_lon = _mo + (max_lon - _mo) * (1 + _xp)
+            min_lat, max_lat, min_lon, max_lon = _aspect_fit(
+                min_lat, max_lat, min_lon, max_lon, rect.width / max(rect.height, 1))
+
+        # Pan/zoom (hero only) relative to the base framing.
         if interactive and (_zoom != 1.0 or _center is not None):
             clat = _center[0] if _center else (min_lat + max_lat) / 2.0
             clon = _center[1] if _center else (min_lon + max_lon) / 2.0
@@ -327,31 +432,11 @@ def _draw_map_panel(surface, rect, f, radius, interactive=False):
             hlon = (max_lon - min_lon) / 2.0 / _zoom
             min_lat, max_lat = clat - hlat, clat + hlat
             min_lon, max_lon = clon - hlon, clon + hlon
-        # fit the bounds to the panel aspect (same framing as render_route_map)
-        lat_span = max_lat - min_lat
-        lon_span = max_lon - min_lon
-        target = rect.width / max(rect.height, 1)
-        mid = (min_lat + max_lat) / 2.0
-        cosm = max(math.cos(math.radians(mid)), 0.2)
-        if (lon_span * cosm) / max(lat_span, 1e-6) < target:
-            extra = (target * lat_span / cosm - lon_span) / 2
-            min_lon -= extra
-            max_lon += extra
-        else:
-            extra = (lon_span * cosm / target - lat_span) / 2
-            min_lat = max(-85.0, min_lat - extra)
-            max_lat = min(85.0, max_lat + extra)
 
         if interactive:
             _view_bounds = (min_lat, max_lat, min_lon, max_lon)
 
-        inset = theme.s(4)
-        map_w = max(1, rect.width - inset * 2)
-        map_h = max(1, rect.height - inset * 2)
-        try:
-            basemap = route_map._request_basemap(min_lat, max_lat, min_lon, max_lon, map_w, map_h)
-        except Exception:
-            basemap = None
+        basemap = _basemap_or_stale(min_lat, max_lat, min_lon, max_lon, map_w, map_h)
         if basemap is not None:
             panel.blit(basemap, (inset, inset))
             dim = pygame.Surface((map_w, map_h), pygame.SRCALPHA)
@@ -614,7 +699,7 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
     cw, chh, gap = theme.s(54), theme.s(39), theme.s(5)
     total = cw * 4 + gap * 3
     x0 = cx - total // 2
-    cyr = theme.s(300)
+    cyr = theme.s(276)   # lifted off the ‹ Volg › controls, per the design
     hdg = f.get("heading")
     hdg_s = f"{int(hdg)}\u00b0" if (hdg is not None and int(hdg) > 0) else "\u2014"
     sv, su = _spd_parts(f)
