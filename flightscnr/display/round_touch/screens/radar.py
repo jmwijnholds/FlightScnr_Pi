@@ -640,27 +640,15 @@ def _draw_grid(surface, *, calibrate: bool = False):
     if not calibrate:
         _draw_hud_frame_accents(surface)
     if settings.show_range_rings():
-        # Rings sit at round distances (scale.ring_values), not exact thirds.
+        # Subtle rings over the map (FR24-clean); no full-diameter crosshairs —
+        # the map, compass and centre marker give orientation.
         ring_vals = scale.ring_values(scale.active_index())
         outer_val = float(ring_vals[-1])
+        ring_w = max(1, theme.s(1))
+        ring_col = tuple(int(c * 0.6) for c in theme.GRID[:3])
         for d in ring_vals:
             r = int(round(theme.GRID_OUTER_RADIUS * float(d) / outer_val))
-            draw.draw_dashed_circle(surface, center, r, theme.GRID, width=line_w)
-
-        cx, cy = theme.CENTER_X, theme.CENTER_Y
-        r = theme.GRID_OUTER_RADIUS
-        # Crosshairs follow true N/S and E/W (rotate with facing).
-        for bearing in (0, 90):
-            rad = math.radians(bearing - facing - 90)
-            dx = r * math.cos(rad)
-            dy = r * math.sin(rad)
-            draw.draw_dashed_line(
-                surface,
-                (cx - dx, cy - dy),
-                (cx + dx, cy + dy),
-                theme.CROSSHAIR,
-                width=line_w,
-            )
+            draw.draw_dashed_circle(surface, center, r, ring_col, width=ring_w)
 
     cx, cy = theme.CENTER_X, theme.CENTER_Y
     if settings.show_compass_rose():
@@ -724,7 +712,7 @@ def _draw_grid(surface, *, calibrate: bool = False):
         rad = math.radians(theme.SCALE_LABEL_BEARING_DEG - facing - 90)
         x = theme.CENTER_X + int(label_r * math.cos(rad))
         y = theme.CENTER_Y + int(label_r * math.sin(rad))
-        rendered = scale_font.render(label, True, theme.GRID)
+        rendered = scale_font.render(label, True, tuple(int(c * 0.72) for c in theme.GRID[:3]))
         surface.blit(rendered, rendered.get_rect(center=(x, y)))
 
 
