@@ -1212,7 +1212,7 @@ def draw_flight_detail(surface, flights, selected_index, scroll_offset: int = 0)
 
     # --- journey cluster under the chips: location + ETA, progress, route names ---
     if not is_vessel:
-        _draw_hud_line(surface, cx, theme.s(302), _nearest_city_name(f), _eta_clock(f),
+        _draw_hud_line(surface, cx, theme.s(312), _nearest_city_name(f), _eta_clock(f),
                        vpx=11, lpx=9)
         prog = _flight_progress(f)
         if prog is not None:
