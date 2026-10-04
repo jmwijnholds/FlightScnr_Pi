@@ -290,6 +290,7 @@ def _build_frame_layer(build: pygame.Surface, backdrop, flights, offset) -> bool
     _draw_flights(build, flights)
     _t = _rebuild_stage("2r_flights", _t)
     _draw_status(build, flights)
+    _draw_time_chip(build)
     _draw_map_attribution(build)
     try:
         from display.round_touch import zoom_buttons
@@ -1689,6 +1690,23 @@ def visible_in_range_count_at_floor(flights, min_height_ft: int) -> int:
         if geo.local_offset_km(lat, lon)[2] <= geo.inner_ring_max_km():
             count += 1
     return count
+
+
+def _draw_time_chip(surface):
+    """Clean glass time chip at the top — the only HUD element we keep."""
+    import datetime
+    txt = datetime.datetime.now().strftime("%H:%M")
+    font = draw.load_font(theme.s(13), bold=True)
+    t = font.render(txt, True, (230, 241, 255))
+    pad_x, pad_y = theme.s(15), theme.s(5)
+    w, h = t.get_width() + pad_x * 2, t.get_height() + pad_y * 2
+    cx, cy = theme.CENTER_X, theme.s(31)
+    chip = pygame.Surface((w, h), pygame.SRCALPHA)
+    pygame.draw.rect(chip, (18, 32, 54, 150), chip.get_rect(), border_radius=h // 2)
+    pygame.draw.rect(chip, (120, 190, 255, 95), chip.get_rect(),
+                     width=max(1, theme.s(1)), border_radius=h // 2)
+    surface.blit(chip, (cx - w // 2, cy - h // 2))
+    surface.blit(t, t.get_rect(center=(cx, cy)))
 
 
 def _draw_contacts_status(surface, n):
