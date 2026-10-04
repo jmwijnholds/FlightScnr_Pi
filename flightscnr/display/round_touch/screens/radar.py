@@ -1690,6 +1690,28 @@ def visible_in_range_count_at_floor(flights, min_height_ft: int) -> int:
     return count
 
 
+def _draw_contacts_status(surface, n):
+    """Subtle bottom status line: contacts · range · source (2030 HUD)."""
+    try:
+        units = settings.distance_units()
+        ring_vals = scale.ring_values(scale.active_index(), units)
+        rng = f"{float(ring_vals[-1]):g} {units}"
+    except Exception:
+        rng = ""
+    sep = "   ·   "
+    txt = f"{n}{sep}{rng}{sep}ADS-B" if rng else f"{n}{sep}ADS-B"
+    font = draw.load_font(theme.s(8))
+    t = font.render(txt, True, (143, 184, 230))
+    y = theme.SIZE - theme.s(42)
+    # tiny plane glyph so the leading count reads as "aircraft"
+    r = t.get_rect(center=(theme.CENTER_X + theme.s(6), y))
+    gx, gy = r.left - theme.s(9), y
+    s4 = theme.s(3)
+    pygame.draw.polygon(surface, (143, 184, 230),
+                        [(gx, gy + s4), (gx + 2 * s4, gy + s4), (gx + s4, gy - s4)])
+    surface.blit(t, r)
+
+
 def _draw_status(surface, flights):
     try:
         from config import location_configured, location_status
@@ -1699,6 +1721,7 @@ def _draw_status(surface, flights):
 
     visible = _visible_flights(flights)
     if visible:
+        _draw_contacts_status(surface, len(visible))
         return
 
     font = draw.load_font(theme.FONT_DETAIL)
