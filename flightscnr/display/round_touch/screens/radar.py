@@ -698,7 +698,8 @@ def _draw_grid(surface, *, calibrate: bool = False):
     line_w = max(1, theme.s(2))
     facing = settings.effective_facing_deg()
     if not calibrate:
-        _draw_hud_frame_accents(surface)
+        # HUD-frame accents (rings/compass/sweep/home) are off per the clean,
+        # FR24-style look; keep only the city names for orientation.
         _draw_city_labels(surface)
     if settings.show_range_rings():
         # Subtle rings over the map (FR24-clean); no full-diameter crosshairs —
@@ -1700,14 +1701,15 @@ def _draw_contacts_status(surface, n):
         rng = ""
     sep = "   ·   "
     txt = f"{n}{sep}{rng}{sep}ADS-B" if rng else f"{n}{sep}ADS-B"
+    col = (230, 241, 255)
     font = draw.load_font(theme.s(8))
-    t = font.render(txt, True, (143, 184, 230))
+    t = font.render(txt, True, col)
     y = theme.SIZE - theme.s(42)
     # tiny plane glyph so the leading count reads as "aircraft"
     r = t.get_rect(center=(theme.CENTER_X + theme.s(6), y))
     gx, gy = r.left - theme.s(9), y
     s4 = theme.s(3)
-    pygame.draw.polygon(surface, (143, 184, 230),
+    pygame.draw.polygon(surface, col,
                         [(gx, gy + s4), (gx + 2 * s4, gy + s4), (gx + s4, gy - s4)])
     surface.blit(t, r)
 
