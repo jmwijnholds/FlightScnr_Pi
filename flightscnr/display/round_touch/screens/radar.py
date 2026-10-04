@@ -1094,10 +1094,11 @@ def _vessel_tag_lines(flight):
 
 
 def _flight_number_tag_color() -> tuple[int, int, int]:
-    """User-tunable color for the aircraft blip identity (flight number) row."""
+    """Identity (callsign) row colour. 2030 HUD: bright near-white on the dark
+    map so the tag reads as one clean blue/white block."""
     if _pale_basemap():
         return tuple(theme.TAG_TEXT_LIGHT[:3])
-    return tuple(theme.TAG_TEXT_DARK[:3])
+    return (230, 241, 255)
 
 
 def _aircraft_tag_lines(flight):

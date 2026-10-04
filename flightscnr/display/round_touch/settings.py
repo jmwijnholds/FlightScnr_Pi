@@ -3037,9 +3037,11 @@ def apply_theme_colors():
     theme.BG = (2, 15, 3)
     theme.AIRCRAFT = (255, 180, 40)
     theme.AIRCRAFT_UNKNOWN = (150, 100, 28)
-    theme.TAG_TYPE = (255, 200, 0)
-    theme.TAG_ALT_ASCEND = (0, 255, 255)
-    theme.TAG_ALT_DESCEND = (255, 0, 255)
+    # 2030 HUD: cohesive blue/white tags (type muted blue, altitude light blue,
+    # descending flagged in soft amber) instead of amber/cyan/magenta.
+    theme.TAG_TYPE = (143, 184, 230)
+    theme.TAG_ALT_ASCEND = (207, 228, 255)
+    theme.TAG_ALT_DESCEND = (255, 176, 112)
     theme.RUNWAY_DARKMAP = runway_darkmap_rgb()
     theme.RUNWAY_LIGHT = runway_light_rgb()
     theme.TAG_TEXT_DARK = tag_text_dark_rgb()
